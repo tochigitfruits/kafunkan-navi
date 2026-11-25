@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>花粉管観察ナビ</title>
+<meta name="robots" content="noindex,nofollow,noarchive,nosnippet">
+<meta name="googlebot" content="noindex,nofollow,noarchive,nosnippet">
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Layout: sticky header with three views (工程 / 試薬 / 記録). 工程 view = lot strip on top, one-step-at-a-time card below.
+   工程8 = 花柱ごとの記録（処理区 → 花 → 花柱）。方法（軟化液・透明化・すすぎ・封入液）はロットごとに選ぶ。 */
+:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;padding:0}
+img{max-width:100%}
+[hidden]:not([hidden=until-found i]){display:none!important}
+:root{
+  --bg:#F2F5F9; --surface:#FFFFFF; --sunk:#E8EEF5; --ink:#15233A; --muted:#566880; --line:#D3DCE7;
+  --accent:#1D5FA8; --accent-ink:#FFFFFF; --glow:#0A93B3; --glow-soft:#DDF3F8;
+  --warn:#9A6312; --warn-soft:#FBF0DC; --ok:#2C7A4F; --ok-soft:#E1F3E8; --danger:#B33A3A;
+  --f-body:"BIZ UDPGothic","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0B1119; --surface:#131C28; --sunk:#0F1722; --ink:#E2EAF4; --muted:#8C9DB3; --line:#253447;
+  --accent:#6AAEEA; --accent-ink:#0B1119; --glow:#4FD3EE; --glow-soft:#123341;
+  --warn:#E3AA4E; --warn-soft:#2E2414; --ok:#62C792; --ok-soft:#14301F; --danger:#F07A7A; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0B1119; --surface:#131C28; --sunk:#0F1722; --ink:#E2EAF4; --muted:#8C9DB3; --line:#253447;
+  --accent:#6AAEEA; --accent-ink:#0B1119; --glow:#4FD3EE; --glow-soft:#123341;
+  --warn:#E3AA4E; --warn-soft:#2E2414; --ok:#62C792; --ok-soft:#14301F; --danger:#F07A7A; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.65}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+.wrap{max-width:1040px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--glow);outline-offset:2px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+header .wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-block:10px}
+.brand{display:flex;flex-direction:column;line-height:1.25;margin-right:auto;min-width:0}
+.brand b{font-size:17px;letter-spacing:.02em}
+.brand small{color:var(--muted);font-size:11.5px}
+.tabs{display:flex;gap:4px;background:var(--sunk);padding:4px;border-radius:999px}
+.tabs button{border:0;background:transparent;padding:6px 16px;border-radius:999px;font-weight:700;font-size:14px;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--accent);box-shadow:0 1px 3px rgb(0 0 0 / .12)}
+.save-state{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.save-state i{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block}
+.save-state.local i{background:var(--warn)}
+
+main{padding-block:18px 60px}
+h2{font-size:18px;margin:0 0 10px;text-wrap:balance}
+.lede{color:var(--muted);font-size:13.5px;margin:0 0 14px;max-width:62ch}
+
+/* lot strip */
+.lots{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:12px;scrollbar-width:thin}
+.lot{flex:0 0 auto;width:182px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.lot[aria-current="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.lot .nm{font-weight:700;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lot .pill{white-space:normal}
+.dots{display:flex;gap:3px}
+.dots span{flex:1;height:5px;border-radius:3px;background:var(--line)}
+.dots span.d{background:var(--accent)}
+.dots span.c{background:var(--glow)}
+.lot .st{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:6px}
+.lot .st .mono{color:var(--glow);font-weight:600}
+.lot.new{align-items:center;justify-content:center;border-style:dashed;color:var(--accent);font-weight:700;width:130px;text-align:center}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--sunk);color:var(--muted);white-space:nowrap}
+.pill.A{background:var(--sunk);color:var(--muted)}
+.pill.N{background:var(--ok-soft);color:var(--ok)}
+.pill.cs{background:var(--glow-soft);color:var(--glow)}
+.pill.alpha{background:var(--warn-soft);color:var(--warn)}
+.pill.okp{background:var(--ok-soft);color:var(--ok)}
+
+/* lot header */
+.lothead{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-bottom:12px}
+.lothead .t{flex:1;min-width:0}
+.lothead b{font-size:16px;margin-right:6px}
+.lothead .stamp{margin-top:2px}
+
+/* step card */
+.rail{display:grid;grid-template-columns:repeat(9,1fr);gap:4px;margin-bottom:12px}
+.rail button{border:0;background:var(--sunk);border-radius:6px;padding:6px 2px 5px;display:flex;flex-direction:column;align-items:center;gap:1px;color:var(--muted);min-width:0}
+.rail button b{font-family:var(--f-mono);font-size:14px}
+.rail button small{font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.rail button.done{background:var(--accent);color:var(--accent-ink)}
+.rail button.cur{background:var(--glow);color:var(--accent-ink)}
+.rail button.view{outline:2px solid var(--ink);outline-offset:1px}
+@media (max-width:560px){.rail button small{display:none}}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.card-h{display:flex;gap:16px;align-items:flex-start;padding:18px 20px 14px;border-bottom:1px solid var(--line)}
+.num{font-family:var(--f-mono);font-size:40px;font-weight:600;line-height:1;color:var(--accent);min-width:1.4ch}
+.card-h .t{min-width:0;flex:1}
+.card-h h3{margin:0;font-size:20px;line-height:1.35;text-wrap:balance}
+.cond{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.cond span{font-size:12.5px;background:var(--sunk);border-radius:6px;padding:1px 8px;color:var(--muted)}
+.cond span.chg{background:var(--glow-soft);color:var(--glow);font-weight:700}
+.card-b{padding:16px 20px;display:grid;gap:12px}
+.card-b p{margin:0;max-width:64ch}
+.note{border-radius:8px;padding:9px 12px;font-size:13.5px;background:var(--warn-soft);color:var(--ink)}
+.note b{color:var(--warn)}
+.note.info{background:var(--sunk)}
+.note.info b{color:var(--muted)}
+.note.waste{background:var(--ok-soft)}
+.note.waste b{color:var(--ok)}
+.chip{border:1px solid var(--accent);color:var(--accent);background:transparent;border-radius:999px;padding:0 9px;font-size:13.5px;font-weight:700;line-height:1.6;margin:0 2px}
+.chip:hover{background:var(--accent);color:var(--accent-ink)}
+
+.timer{display:flex;align-items:center;gap:16px;flex-wrap:wrap;background:var(--sunk);border-radius:10px;padding:12px 14px}
+.timer .big{font-family:var(--f-mono);font-size:30px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--glow);letter-spacing:.02em}
+.timer.over .big{color:var(--ok)}
+.timer .meta{font-size:12.5px;color:var(--muted);line-height:1.5}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;flex:1 1 160px;min-width:120px}
+.bar i{display:block;height:100%;background:var(--glow);width:0}
+.timer.over .bar i{background:var(--ok)}
+
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:14px 20px 18px;border-top:1px solid var(--line)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 16px;font-weight:700;font-size:14px}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.glow{background:var(--glow);border-color:var(--glow);color:var(--accent-ink)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted);font-weight:400;padding-inline:8px}
+.btn.danger{color:var(--danger)}
+.btn[disabled]{opacity:.45;cursor:default}
+.sp{flex:1}
+.stamp{font-size:12.5px;color:var(--muted)}
+.stamp .mono{color:var(--ink)}
+
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.fld{display:flex;flex-direction:column;gap:4px;min-width:0}
+.fld label,.fld .lab{font-size:12px;color:var(--muted);font-weight:700;letter-spacing:.02em}
+.fld input,.fld select,.fld textarea{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 10px;width:100%;min-width:0}
+.fld select:disabled{opacity:.5}
+.fld textarea{min-height:64px;resize:vertical}
+.fld.wide{grid-column:1/-1}
+.fld.chk{flex-direction:row;align-items:center;gap:8px}
+.fld.chk input{width:auto}
+.fld.chk label{font-size:13.5px;color:var(--ink);font-weight:400}
+.mbox{grid-column:1/-1;border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;background:var(--bg)}
+
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:14px;padding:28px 22px;display:grid;gap:12px;justify-items:start}
+.empty h3{margin:0;font-size:18px}
+.empty p{margin:0;color:var(--muted);max-width:60ch}
+
+/* 花柱ごとの記録（工程8） */
+.obs{display:grid;gap:12px;border-top:1px solid var(--line);padding-top:14px}
+.obs-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.obs-h b{font-size:16px}
+.pick-l{font-size:12px;color:var(--muted);font-weight:700;margin-bottom:4px}
+.pick{display:flex;flex-wrap:wrap;gap:6px}
+.pick button{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:4px 10px;font-size:13px;display:flex;gap:6px;align-items:baseline;max-width:100%;text-align:left}
+.pick button small{font-family:var(--f-mono);font-size:11px;opacity:.8}
+.pick button.full{background:var(--ok-soft);border-color:transparent}
+.pick button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent);color:var(--accent-ink);font-weight:700}
+.sty{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:8px}
+.sty.lost{background:var(--sunk)}
+.sty-h{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.sty-h label{font-size:13px;display:flex;align-items:center;gap:5px;color:var(--muted)}
+.sty-h .wr{font-size:12.5px;color:var(--warn);font-weight:700}
+.sty-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 10px}
+.lines{display:flex;flex-wrap:wrap;gap:6px}
+.lines label{display:flex;flex-direction:column;align-items:center;gap:2px;font-family:var(--f-mono);font-size:11px;color:var(--muted);font-weight:400}
+.fld .lines input{width:54px;text-align:center;padding:6px 4px}
+
+/* reagents */
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-bottom:22px}
+.rcard{text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.rcard b{font-size:15px}
+.rcard small{color:var(--muted);font-size:12.5px}
+.rcard:hover{border-color:var(--accent)}
+.est{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;display:grid;gap:12px;margin-bottom:22px}
+.est-out{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.est-out div{background:var(--sunk);border-radius:8px;padding:8px 12px}
+.est-out small{display:block;font-size:12px;color:var(--muted)}
+.est-out b{font-family:var(--f-mono);font-size:20px}
+.sec{margin-bottom:22px}
+.sec td{white-space:normal}
+.sec td:first-child{font-weight:700}
+
+/* records */
+.tbl-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{background:var(--sunk);font-size:12px;color:var(--muted);position:sticky;top:0}
+td.mono{font-size:12.5px}
+.rec-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+
+/* modal */
+.scrim{position:fixed;inset:0;background:rgb(5 10 18 / .5);z-index:20;display:flex;align-items:flex-end;justify-content:center;padding:env(safe-area-inset-top,0px) 0 0}
+.sheet{background:var(--surface);width:min(640px,100%);max-height:88vh;overflow:auto;border-radius:16px 16px 0 0;padding:18px max(18px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px))}
+@media (min-width:700px){.scrim{align-items:center}.sheet{border-radius:16px}}
+.sheet-h{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+.sheet-h h3{margin:0;font-size:19px;flex:1}
+.sheet-h small{display:block;color:var(--muted);font-size:12.5px;font-weight:400}
+.sheet p{margin:0 0 10px}
+.vol{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 12px}
+.vol input{width:110px;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--surface);font-family:var(--f-mono);font-size:16px}
+.vol .pre{border:1px solid var(--line);background:var(--sunk);border-radius:999px;padding:3px 11px;font-size:13px;font-family:var(--f-mono)}
+.ing{width:100%;margin-bottom:12px}
+.ing td{white-space:normal}
+.ing td:last-child{text-align:right;font-family:var(--f-mono);font-size:16px;font-weight:600;color:var(--accent);white-space:nowrap}
+.sheet ol{margin:0 0 12px;padding-left:1.4em}
+.sheet ol li{margin-bottom:3px}
+.sheet .note{margin-bottom:6px}
+.seg{display:inline-flex;background:var(--sunk);border-radius:8px;padding:3px;gap:3px}
+.seg button{border:0;background:transparent;border-radius:6px;padding:3px 12px;font-size:13px;font-weight:700;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--accent)}
+.mbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.mv{display:flex;gap:8px;align-items:baseline;padding:6px 4px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.mv b{font-family:var(--f-mono);min-width:1.6em}
+.mv .stamp{margin-left:auto}
+.ck{display:flex;gap:8px;align-items:baseline;margin-top:8px;font-size:13.5px}
+.trow{display:grid;grid-template-columns:2em minmax(0,2fr) minmax(0,1.2fr) minmax(0,1.2fr) 2.2em;gap:6px;align-items:center;margin-bottom:6px}
+.trow input{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 8px;width:100%;min-width:0}
+.trow.th{font-size:12px;color:var(--muted);font-weight:700;margin-top:12px}
+.trow .btn{padding:4px 0}
+
+#toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:999px;font-size:13.5px;z-index:30;max-width:calc(100% - 32px)}
+@media (prefers-reduced-motion:no-preference){.sheet{animation:rise .18s ease-out}@keyframes rise{from{transform:translateY(6px);opacity:.6}to{transform:none;opacity:1}}}
+</style>
+</head><body>
+
+<header class="top"><div class="wrap">
+  <div class="brand"><b>花粉管観察ナビ</b><small>ニホンナシ｜押しつぶし法 Ver. 2.1｜方法はロットごとに選択｜花柱ごとの記録</small></div>
+  <nav class="tabs" role="tablist" aria-label="表示切替">
+    <button id="tab-run" role="tab" aria-selected="true" data-v="run">工程</button>
+    <button id="tab-reag" role="tab" aria-selected="false" data-v="reag">試薬</button>
+    <button id="tab-rec" role="tab" aria-selected="false" data-v="rec">記録</button>
+  </nav>
+  <div class="save-state" id="saveState"><i></i><span>接続中…</span></div>
+</div></header>
+
+<main class="wrap">
+  <section id="v-run"></section>
+  <section id="v-reag" hidden></section>
+  <section id="v-rec" hidden></section>
+</main>
+<div id="modal" class="scrim" hidden></div>
+<div id="toast" hidden></div>
+
+<script>
+(()=>{
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pad=n=>String(n).padStart(2,"0");
+const fmt=ts=>{if(!ts)return"";const d=new Date(ts);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`};
+const today=()=>{const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`};
+const dur=ms=>{const neg=ms<0;ms=Math.abs(ms);const s=Math.floor(ms/1000),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),x=s%60;return (neg?"+":"")+(d?d+"日 ":"")+`${pad(h)}:${pad(m)}:${pad(x)}`};
+const g=x=>x<1?x.toFixed(3):x<10?x.toFixed(2):x.toFixed(1);
+const g2=x=>x.toFixed(2);            /* 0.01 g のはかりに合わせた表示 */
+const ml=x=>x<10?x.toFixed(1):Math.round(x).toString();
+let toastT;function toast(t){const el=$("#toast");el.textContent=t;el.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>el.hidden=true,2600)}
+const chip=(k,l)=>`<button class="chip" data-r="${k}">${l}</button>`;
+const SULF=0.0063;                   /* 亜硫酸Na 無水物 50 mM：液量(mL)×0.0063 g（03 の2節） */
+
+/* ---------- waste / safety (03 の3・4節) ---------- */
+const WASTE=[
+  ["ClearSeeAlpha（亜硫酸なしのClearSeeも同じ）","有機","亜硫酸塩を含むので酸と混ぜない。有機廃液に酸（FAAなど）が多い場合は別容器か担当者に確認"],
+  ["FAA","有機","ホルマリンを別回収している場合はそちら"],
+  ["グリセリン封入液","有機","スライドに付いた分は固形廃棄物"],
+  ["1N KOH（亜硫酸入りを含む）","無機・アルカリ性","亜硫酸入りは容器に「亜硫酸塩含有」と書く。酸性廃液に入れない"],
+  ["アニリンブルー染色液、0.1M K₃PO₄","無機・アルカリ性","pH 12前後"]
+];
+const SAFETY=[
+  ["KOH","強アルカリで70℃。手袋・保護メガネ。粉や袋は静かに入れる"],
+  ["亜硫酸Na＋KOH","混ぜても危険はない（ガス・発熱なし）。温めたKOHに加えてよい"],
+  ["亜硫酸Na＋酸","混合禁止。二酸化硫黄が発生する"],
+  ["亜硫酸Na＋酸化剤（次亜塩素酸、過酸化水素など）","混合禁止（発熱）。使う場合は水洗を挟む"],
+  ["ClearSee＋熱いKOH","尿素が分解してアンモニアが出る。この順序は避ける"],
+  ["デオキシコール酸ナトリウム","粉が舞いやすい。吸い込まない"]
+];
+
+/* ---------- reagents (03 の2節) ---------- */
+const R={
+  kohs:{name:"1N KOH＋亜硫酸Na",use:"軟化（工程2）・基本の軟化液",def:250,pre:[100,200,250,300,500],
+    items:v=>[["1N KOH（KOH 56.1 g/L）",ml(v)+" mL"],["　うちKOH",g(v*0.0561)+" g"],["亜硫酸ナトリウム 無水物（Na₂SO₃、126.04）",g2(v*SULF)+" g"]],
+    steps:v=>[`1N KOH ${ml(v)} mL を作る（KOH ${g(v*0.0561)} g、発熱するので少しずつ溶かし、冷めてから定容）。`,"70℃（75℃程度まで予熱してよい）に温める。","亜硫酸ナトリウム（無水物）を少しずつ加えて溶かす（終濃度 50 mM）。","すぐに袋を入れる。作り置きしない。回を分ける場合は回ごとに新しく作る。"],
+    warn:v=>v*SULF<0.3?"0.01 gのはかりでは、亜硫酸ナトリウム0.3 g未満は誤差が大きい。50 mL以上で作る。":"",
+    notes:["液量は袋の体積の5〜10倍。12袋なら200〜300 mLが目安。","似た名前の試薬（亜硫酸水素ナトリウム、ピロ亜硫酸ナトリウム、チオ硫酸ナトリウム）は別物。代用しない。","濃度は±10％ずれてもよいが、少なすぎないこと（1〜10 mMでは効かない報告）。","<b>安全</b>　手袋・保護メガネ。亜硫酸ナトリウムは酸と混ぜない（二酸化硫黄が発生）。"],
+    waste:"無機・アルカリ性。容器に「亜硫酸塩含有」と書き、酸性廃液に入れない。"},
+  koh:{name:"1N KOH（亜硫酸なし）",use:"軟化（工程2）・従来法など亜硫酸を加えないロット",def:250,pre:[100,250,500,1000],
+    items:v=>[["水酸化カリウム（KOH）",g(v*0.0561)+" g"]],
+    steps:v=>["ビーカーに最終量の7割ほどの蒸留水を入れる。","KOHを少しずつ加えて溶かす（発熱する）。",`冷めてから蒸留水で ${ml(v)} mL にする。`,"使用前に70℃の恒温器で予熱しておく。"],
+    notes:["手袋・保護メガネを着用する。","量は従来の手順（56.1 g/L）に合わせている。純度85％の試薬で厳密に1Nにする場合は表示量×1.18。"],
+    waste:"無機・アルカリ性。"},
+  alpha:{name:"ClearSeeAlpha",use:"透明化（工程5）・基本の透明化液",def:50,pre:[50,100,135,200],volLabel:"作る量（＝使うClearSee原液の量）",
+    items:v=>[["ClearSee原液",ml(v)+" mL"],["亜硫酸ナトリウム 無水物（Na₂SO₃、126.04）",g2(v*SULF)+" g"]],
+    steps:v=>[`ClearSee原液 ${ml(v)} mL を取り分ける。`,"亜硫酸ナトリウム（無水物）を加え、泡立てないように溶かす（終濃度 50 mM）。","使用直前に作る。作り置きしない。"],
+    warn:v=>v*SULF<0.3?"0.01 gのはかりでは、亜硫酸ナトリウム0.3 g未満は誤差が大きい。50 mL以上で作る。":"",
+    notes:["浸漬が1週間を超える場合は、約1週間ごとに新しい液と交換する。","1〜10 mMでは褐変を抑えられなかったと報告されている。濃度は下げない。","出典：Kurihara et al. (2021) Plant Cell Physiol. 62: 1302–1310。用時調製は製品パンフレットにも記載。"],
+    waste:"有機。亜硫酸塩を含むので酸と混ぜない。"},
+  clearsee:{name:"ClearSee原液",use:"ClearSeeAlphaの原液／ClearSee（亜硫酸なし）のロット",def:200,pre:[50,100,200,500],
+    items:v=>[["尿素",g(v*0.25)+" g"],["キシリトール",g(v*0.10)+" g"],["デオキシコール酸ナトリウム",g(v*0.15)+" g"]],
+    steps:v=>["ビーカーに最終量の7割ほどの蒸留水を入れる。","尿素を溶かし、次にキシリトールを溶かす。","デオキシコール酸ナトリウムを少しずつ加えて溶かす（泡立つので強く振らない）。",`蒸留水で ${ml(v)} mL にする。遮光・室温で保存。`],
+    notes:["作製済み（2026-07-26、約200 mL）あり。使う前に、無色〜淡黄色で透明か、沈殿がないかを確認する。","基本の透明化液はClearSeeAlpha。亜硫酸を含まないClearSeeは褐変を抑える成分がないので、比べる目的で使う。","白い沈殿は低温による析出。室温で撹拌して溶ければ使える。","デオキシコール酸ナトリウムは粉が舞いやすい。秤量時に吸い込まない。"],
+    waste:"有機。"},
+  k3po4:{name:"0.1M K₃PO₄",use:"すすぎ（工程5'）・染色液の溶媒",def:500,pre:[100,250,500,1000],
+    items:v=>[["りん酸三カリウム（K₃PO₄）",g(v*0.0212)+" g"]],
+    steps:v=>["蒸留水に溶かす。",`蒸留水で ${ml(v)} mL にする。`],
+    notes:["すすぎの必要量は1花（1穴）あたり2 mL（1 mL×2回）＋予備10％。"],
+    waste:"無機・アルカリ性（pH 12前後）。"},
+  ab:{name:"0.1％アニリンブルー染色液",use:"染色（工程6）・封入液の材料",def:250,pre:[250,500,1000],
+    items:v=>[["りん酸三カリウム（K₃PO₄）",g(v*0.0212)+" g"],["水溶性アニリンブルー",g(v*0.001)+" g"]],
+    steps:v=>["蒸留水にK₃PO₄を溶かす。","アニリンブルーを加えて溶かす。",`蒸留水で ${ml(v)} mL にする。`,"アルミホイルで遮光して保存する。"],
+    warn:v=>v<250?"0.01 gのはかりでは、色素0.25 g未満は誤差が大きい。250 mL以上で作る。":"",
+    notes:["必要量の目安は1花（1穴）あたり1 mL＋予備10％。"],
+    waste:"無機・アルカリ性（pH 12前後）。"},
+  mount:{name:"グリセリン封入液",use:"封入・押しつぶし（工程7）",def:20,pre:[10,20,50],ratio:true,
+    items:(v,r)=>[["0.1％アニリンブルー染色液",ml(v*(1-r))+" mL"],["グリセリン",ml(v*r)+" mL"]],
+    steps:v=>["グリセリンは粘性が高く下に溜まるので、よく混ぜる。","遮光して保存する。1枚あたり1〜2滴使う。"],
+    notes:["50％が標準。花粉管が細胞の影でぼやける場合は70％を試す（屈折率が上がるが押しつぶしにくくなる）。"],
+    waste:"有機。スライドに付いた分は固形廃棄物。"}
+};
+
+/* ---------- 方法（ロットごとに選ぶ。いつでも変えられる） ----------
+   lot.soft ＝軟化液："kohs"＝1N KOH＋亜硫酸Na、"koh"＝1N KOHのみ
+   lot.clr  ＝透明化："none"＝なし、"cs"＝ClearSee、"alpha"＝ClearSeeAlpha（日数は lot.days）
+   lot.rinse＝工程5'のK₃PO₄すすぎ：1＝する、0＝しない（透明化なしのときは常にしない）
+   lot.mount＝封入液："gly"＝グリセリン封入液、"ab"＝染色液
+   これらの項目がないロット（2026-11-24 以前の形式）は、zone と reagent から決める：
+   zone A＝従来法、N＝透明化なし、それ以外は reagent（cs／alpha）。zone は区の記号（ラベル）として残る。 */
+const softOf=l=>l.soft==="koh"||l.soft==="kohs"?l.soft:(l.zone==="A"?"koh":"kohs");
+const clrOf=l=>l.clr==="none"||l.clr==="cs"||l.clr==="alpha"?l.clr:(l.zone==="A"||l.zone==="N"?"none":(l.reagent==="cs"?"cs":"alpha"));
+const rinseOf=l=>clrOf(l)==="none"?false:(l.rinse==null?clrOf(l)==="alpha":!!+l.rinse);
+const mountOf=l=>l.mount==="ab"||l.mount==="gly"?l.mount:(l.zone==="A"?"ab":"gly");
+const softKoh=l=>softOf(l)==="koh";
+const mountAb=l=>mountOf(l)==="ab";
+const noClear=l=>clrOf(l)==="none";
+const isAlpha=l=>clrOf(l)==="alpha";
+const rName=l=>isAlpha(l)?"ClearSeeAlpha":"ClearSee";
+const PRESETS={
+  conv:{name:"従来法",soft:"koh",clr:"none",rinse:0,mount:"ab",desc:"KOHのみ → 染色 → 染色液で封入"},
+  noclr:{name:"透明化なし",soft:"kohs",clr:"none",rinse:0,mount:"gly",desc:"KOH＋亜硫酸Na → 染色 → グリセリン封入"},
+  cs:{name:"ClearSee",soft:"kohs",clr:"cs",rinse:0,mount:"gly",desc:"KOH＋亜硫酸Na → ClearSee → 染色 → グリセリン封入"},
+  alpha:{name:"ClearSeeAlpha",soft:"kohs",clr:"alpha",rinse:1,mount:"gly",desc:"KOH＋亜硫酸Na → ClearSeeAlpha → すすぎ → 染色 → グリセリン封入（基本）"}
+};
+const methOf=l=>({soft:softOf(l),clr:clrOf(l),rinse:rinseOf(l)?1:0,mount:mountOf(l)});
+const presetKey=m=>Object.keys(PRESETS).find(k=>{const p=PRESETS[k];return p.soft===m.soft&&p.clr===m.clr&&p.rinse===m.rinse&&p.mount===m.mount})||"";
+const methName=l=>{const k=presetKey(methOf(l));if(k)return PRESETS[k].name;return "組合せ"};
+const methSummary=l=>{const m=methOf(l);
+  return `${m.soft==="koh"?"KOHのみ":"KOH＋亜硫酸Na"} ${l.koh||10}分 → ${m.clr==="none"?"透明化なし":`${rName(l)} ${l.days||1}日 → ${m.rinse?"すすぎ":"すすぎなし"}`} → ${m.mount==="ab"?"染色液で封入":"グリセリン封入"}`};
+const wasteNote=t=>`<div class="note waste"><b>廃液</b>　${t}</div>`;
+
+/* ---------- 処理区・花・花柱（記録形式2、04 の5節） ----------
+   lot.trts ＝ [{id,name,fa,fb}]（処理区。無ければ「処理区を分けない」＝旧形式のロットもこの扱い）
+   lot.fpt  ＝ 1処理区あたりの花数（trts があるとき。無いときは lot.flowers が花数）
+   lot.spf  ＝ 1花あたりの花柱数（初期値5）、lot.maxmm ＝ 2 mm線の上限（初期値20）
+   lot.obs  ＝ {"処理区id-花-花柱": {l,t,e,c,n,x,at}}
+     l＝雌しべの長さ（区分の下限mm。14 は 14–16 mm）、t＝最先端（"none"／区分の下限mm／"base"／"unk"）、
+     e＝花柱に入った本数、c＝{線mm:越えた本数}、n＝備考、x＝欠測、at＝更新時刻 */
+const MAXMM_DEF=20,SPF_DEF=5;
+const hasTrts=l=>Array.isArray(l.trts)&&l.trts.length>0;
+function structOf(l){
+  const imp=!hasTrts(l);
+  const trts=imp?[{id:"0",name:"",fa:"",fb:""}]:l.trts.map((t,i)=>({id:String(t.id??i+1),name:t.name||`処理${i+1}`,fa:t.fa||"",fb:t.fb||""}));
+  const fpt=Math.max(1,Math.floor(+(imp?l.flowers:l.fpt))||1);
+  const spf=Math.max(1,Math.floor(+l.spf)||SPF_DEF);
+  let maxmm=Math.floor(+l.maxmm)||MAXMM_DEF;maxmm=Math.min(60,Math.max(4,maxmm-maxmm%2));
+  return {trts,fpt,spf,maxmm,implicit:imp,total:trts.length*fpt*spf};
+}
+const structLabel=l=>{const S=structOf(l);return S.implicit?`${S.fpt}花`:`${S.trts.length}処理区×${S.fpt}花（計${S.trts.length*S.fpt}花）`};
+const ukey=(tid,f,s)=>`${tid}-${f}-${s}`;
+const blank=v=>v==null||v==="";
+const obsOf=(l,k)=>(l.obs&&typeof l.obs==="object"&&l.obs[k])||{};
+const isRec=o=>!!(o&&(o.x||!blank(o.l)||!blank(o.t)||!blank(o.e)||o.n||(o.c&&Object.keys(o.c).some(m=>!blank(o.c[m])))));
+const isNumT=t=>!blank(t)&&/^\d+$/.test(String(t));
+const num=v=>{v=String(v??"").trim();if(v==="")return"";const x=Math.floor(+v);return isFinite(x)&&x>=0?x:""};
+const cls=k=>`${k}–${+k+2} mm`;
+/* 本数を入力する線の上限（mm）。最先端より先の線は0本、雌しべの長さより先の線は存在しない */
+function lineTop(o,maxmm){
+  if(o.t==="none")return 0;
+  let top=blank(o.l)?maxmm:+o.l;
+  if(isNumT(o.t))top=Math.min(top,+o.t);
+  return top;
+}
+const linesTo=mm=>{const a=[];for(let m=2;m<=mm;m+=2)a.push(m);return a};
+function countRec(l){const S=structOf(l);let rec=0,lost=0;const keys=new Set();
+  S.trts.forEach(T=>{for(let f=1;f<=S.fpt;f++)for(let s=1;s<=S.spf;s++){const k=ukey(T.id,f,s);keys.add(k);const o=obsOf(l,k);if(isRec(o)){rec++;if(o.x)lost++}}});
+  const all=l.obs&&typeof l.obs==="object"?Object.keys(l.obs).filter(k=>isRec(l.obs[k])):[];
+  return {rec,lost,total:S.total,orphan:all.filter(k=>!keys.has(k)).length};
+}
+
+/* ---------- steps (02 の1節 Ver. 2.1) ---------- */
+/* n＝並び順の数値（cur と比較）、k＝steps の保存キー。5' は n=5.5、k="5p"。既存の "1"〜"8" はそのまま */
+const STEPS=[
+  {n:1,k:"1",lab:"1",s:"水洗",name:"FAA固定試料の水洗",min:()=>720,cond:()=>["お茶パック＋流水オーバーフロー","半日以上"],
+    body:()=>`<p>お茶パックを3花が入るぎりぎりの大きさ（3×4 cm程度）に切り、試料を入れてホチキスで止める。鉛筆書きの紙タグを袋に入れ、流水をオーバーフローさせて洗う（上からかごで押さえる）。</p><div class="note info"><b>メモ</b>　油性ペンのタグは後の工程でにじむことがある。</div>`},
+  {n:2,k:"2",lab:"2",s:"KOH",name:l=>softKoh(l)?"KOH軟化（亜硫酸なし）":"KOH軟化（亜硫酸Na入り）",min:l=>l.koh||10,chg:l=>!softKoh(l),
+    cond:l=>softKoh(l)?["1N KOH（亜硫酸なし）","70℃",`${l.koh||10}分`]:["1N KOH＋亜硫酸Na 50 mM","70℃",`${l.koh||10}分`],
+    body:l=>softKoh(l)?
+      `<p>袋を濾紙などで挟んで水を切り、70℃に予熱した ${chip("koh","1N KOH")} に完全に沈める。終了後はすぐ流水へ移す。</p><div class="note"><b>注意</b>　このロットは亜硫酸ナトリウムを加えない設定（従来法の軟化）。KOHは袋の体積の5〜10倍。時間は浸けた時点から数える。手袋・保護メガネ。</div>${wasteNote("1N KOH → 無機・アルカリ性。")}`:
+      `<p>${chip("kohs","1N KOH＋亜硫酸Na")} を用意する：KOHを70℃（75℃程度まで予熱してよい）に温め、亜硫酸ナトリウム（無水物）を <b>KOHの量（mL）×0.0063 g</b> 少しずつ加えて溶かし、すぐに袋を入れる。</p>
+       <p>袋は濾紙などで挟んで水を切り、底の平らな浅い容器に重ねずに1層に並べる。液量は袋の体積の5〜10倍（12袋で200〜300 mL）。終了後はすぐ流水へ移す。</p>
+       <div class="note"><b>注意</b>　時間は袋を浸けた時点から数える。回を分ける場合は、1回の処理に各処理区のロットを混ぜ、KOHは回ごとに新しく作る。褐変はナシでは起こりやすい現象で、処理の失敗ではない。</div>
+       <div class="note"><b>安全</b>　強アルカリ・70℃。手袋・保護メガネ。亜硫酸ナトリウムは<b>酸と混ぜない</b>（二酸化硫黄が発生）。KOHとは混ぜても危険はない。</div>
+       ${wasteNote("亜硫酸入りKOH → 無機・アルカリ性。容器に「亜硫酸塩含有」と書き、酸性廃液に入れない。")}`},
+  {n:3,k:"3",lab:"3",s:"水洗",name:"KOH後の水洗",min:()=>60,cond:()=>["流水オーバーフロー","1〜2時間","水流は弱め"],
+    body:()=>`<p>流水オーバーフローで洗う。軟化後の試料は崩れやすいので、水流は弱めにする。</p>`},
+  {n:4,k:"4",lab:"4",s:"抜取",name:"雌しべの抜き取り",min:()=>0,chg:()=>true,cond:()=>["1花＝1穴","24穴セルトレイ","水に浸して待つ"],
+    body:()=>`<p>実体顕微鏡下で雌しべを抜き取り、1花分（約5本）を24穴セルトレイの1穴に入れる。全部の穴を抜き終えるまでは、雌しべが乾かないよう少量の水に浸しておく（水は工程5の直前に除く）。</p><div class="note info"><b>メモ</b>　穴の位置と試料番号（処理区・花の番号）の対応を記録する。同じ花の花柱を区に割り振る場合は、区ごとに別の穴に入れる。</div>`},
+  {n:5,k:"5",lab:"5",s:"透明化",name:l=>noClear(l)?"透明化（このロットは行わない）":`${rName(l)}浸漬`,chg:l=>!noClear(l),
+    min:l=>noClear(l)?0:(l.days||1)*1440,skip:l=>noClear(l),
+    cond:l=>noClear(l)?["このロットは透明化なし"]:[`${rName(l)} 1 mL`,"室温・遮光",`${l.days||1}日`,...(isAlpha(l)?[]:["亜硫酸なし"])],
+    body:l=>noClear(l)?
+      `<p>このロットは透明化を行わない設定。水に浸けたまま工程6へ進む（工程5'も行わない）。透明化する場合は「方法を変更」で選び直す。</p>`:
+      `<p>${isAlpha(l)?`${chip("alpha","ClearSeeAlpha")} を使用直前に作る（ClearSee原液に亜硫酸ナトリウム無水物を <b>液量（mL）×0.0063 g</b> 加え、泡立てないように溶かす）。`:`${chip("clearsee","ClearSee")}（亜硫酸なし）を使う。`}</p>
+       <p>1穴ずつ、水をピペットで除いてすぐに1 mL加える → 雌しべが沈んでいるか確かめる → ふたをしてアルミホイルで遮光し、室温に置く。段階置換は不要。</p>
+       <div class="note"><b>注意</b>　15℃未満の場所は避ける（成分が析出する）。雌しべがはみ出す場合は液を1.2〜1.5 mLにするか、子房を切り落とす。${isAlpha(l)?"作り置きはしない。":""}${(l.days||1)>7?"浸漬が1週間を超えるので、約1週間ごとに液を交換する。":""}</div>`},
+  {n:5.5,k:"5p",lab:"5'",s:"すすぎ",name:l=>rinseOf(l)?"K₃PO₄すすぎ（染色前）":"すすぎ（このロットは行わない）",
+    min:l=>rinseOf(l)?10:0,mid:l=>rinseOf(l)?5:0,skip:l=>!rinseOf(l),chg:l=>rinseOf(l),
+    cond:l=>rinseOf(l)?["0.1M K₃PO₄ 1 mL","5分×2回"]:["このロットは行わない"],
+    body:l=>noClear(l)?`<p>透明化をしないロットのため、すすぎは行わない。工程6へ進む。</p>`:
+      !rinseOf(l)?`<p>このロットはすすぎを行わない設定。${rName(l)}は工程6で除いて、そのまま染色液に入れる。</p>
+       ${isAlpha(l)?`<div class="note"><b>注意</b>　すすがないと、亜硫酸が染色液に持ち込まれる。蛍光への影響は未検証（04 の3節）。確かめるなら、同じ花の花柱を「すすぎあり・なし」に1本ずつ分け、同じ露光で比べる。</div>`:`<div class="note info"><b>メモ</b>　亜硫酸を含まないClearSeeでは、すすぎは省いてよい。</div>`}`:
+      `<p>${rName(l)}をピペットで除き、${chip("k3po4","0.1M K₃PO₄")} を1 mL加えて5分置く。液を除き、もう一度1 mLで5分すすぐ。</p>
+       <div class="note info"><b>目的</b>　${isAlpha(l)?"亜硫酸を染色液に持ち込まないため。要否は検証項目（04 の3節）。":"ClearSeeを染色液に持ち込まないため（亜硫酸を含まないので、省いてもよい）。"}</div>
+       <div class="note info"><b>タイマー</b>　2回分の10分。5分で知らせるので、そこで液を交換する。</div>
+       ${wasteNote(`除いた${rName(l)} → 有機${isAlpha(l)?"（亜硫酸塩を含むので酸と混ぜない）":""}。K₃PO₄ → 無機・アルカリ性。`)}`},
+  {n:6,k:"6",lab:"6",s:"染色",name:"アニリンブルー染色",chg:l=>!noClear(l),min:()=>180,cond:()=>["0.1％AB／0.1M K₃PO₄ 1 mL","室温・遮光","3時間"],
+    body:l=>noClear(l)?
+      `<p>水を除き、${chip("ab","アニリンブルー染色液")} を1 mL加える。遮光して室温で染色する。</p>`:
+      `<p>${rinseOf(l)?"工程5'のK₃PO₄":rName(l)}をピペットで除き、${chip("ab","アニリンブルー染色液")} を1 mL加える。遮光して室温で染色する。</p><div class="note info"><b>メモ</b>　水系の液に移ると一時的に白っぽく見えるが、封入すると透明感は戻る。</div>${rinseOf(l)?"":wasteNote(`除いた${rName(l)} → 有機${isAlpha(l)?"（亜硫酸塩を含むので酸と混ぜない）":""}。`)}`},
+  {n:7,k:"7",lab:"7",s:"封入",name:"封入・押しつぶし",chg:l=>!mountAb(l),min:()=>0,
+    cond:l=>[mountAb(l)?"染色液で封入":"グリセリン封入液 1〜2滴","カバーガラス＋濾紙","スライド重ね／おもり"],
+    body:l=>`<p>雌しべをスライドガラスに並べ、${mountAb(l)?chip("ab","染色液"):chip("mount","グリセリン封入液")} を1〜2滴垂らす（多すぎないこと）。カバーガラスをかけて1〜2分置き、濾紙を重ねてから押しつぶす。周囲を透明マニキュアで封じる。</p>
+     <div class="note"><b>押し方</b>　指を痛めない方法で行う：① 濾紙の上にスライドガラスを重ねて手のひらで押す、または ② 100〜500 gのおもりを30秒〜1分載せる。<b>区の間で方法を統一</b>し、使った方法をロットのメモに書く。</div>
+     <div class="note info"><b>押しても広がらない場合</b>　KOH処理（液温の低下）を見直す。</div>
+     ${wasteNote(mountAb(l)?"染色液 → 無機・アルカリ性。":"グリセリン封入液 → 有機。スライドに付いた分は固形廃棄物。")}`},
+  {n:8,k:"8",lab:"8",s:"観察",name:"蛍光観察と記録",min:()=>0,cond:()=>["UV励起","従来法と同じ露光から","冷暗所・数日以内","花柱ごとに記録"],
+    body:()=>`<p>従来法と同じフィルター・露光条件で観察を始める。封入後は冷暗所に置き、数日以内に観察する。</p>
+     <p>柱頭から2 mmごとの線を基準に、花柱1本ずつ記録する：雌しべの長さ、最先端の位置、柱頭直下で数えた「花柱に入った本数」、各線の位置で数えた「線を越えた本数」。基部に届いた花柱は「基部到達」を選ぶ（最上位の区分＝打ち切りとして扱う）。</p>`}
+];
+const LAST=8;
+const nameOf=(s,l)=>typeof s.name==="function"?s.name(l):s.name;
+const flag=(f,l)=>typeof f==="function"?!!f(l):!!f;
+const idx=n=>STEPS.findIndex(s=>s.n===n);
+const stepOf=n=>STEPS[idx(n)]||STEPS[0];
+const nextOf=n=>{const i=idx(n);return i<0||i>=STEPS.length-1?LAST+1:STEPS[i+1].n};
+const prevOf=n=>{if(n>LAST)return LAST;const i=idx(n);return i>0?STEPS[i-1].n:null};
+const curOf=l=>{const c=+l.cur;return c>LAST?LAST+1:(idx(c)>=0?c:1)};
+
+/* ---------- state & storage ---------- */
+let lots={};           // id -> lot
+let sel=null;          // selected lot id
+let viewStep={};       // lotId -> step n being viewed
+let obsSel={};         // lotId -> {t:処理区の番号（0始まり）, f:花の番号}
+let mode="local";      // "db" | "local"
+let db=null;
+const LS="kafunkan-navi-lots";
+const beeped=new Set();
+const chains={};
+const dirty={};        // id -> 未保存の変更の通し番号（保存が済むまで、共有記録からの読み込みで上書きしない）
+const timers={};
+function loadLocal(){try{lots=JSON.parse(localStorage.getItem(LS)||"{}")||{}}catch(e){lots={}}}
+function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(lots))}catch(e){}}
+function setSaveState(){const el=$("#saveState");el.classList.toggle("local",mode!=="db");el.querySelector("span").textContent=mode==="db"?"共有記録に自動保存":"この端末に保存"}
+function cloneLot(id){const c=JSON.parse(JSON.stringify(lots[id]));if(!c.steps||typeof c.steps!=="object")c.steps={};if(!c.res||typeof c.res!=="object")c.res={};return c}
+function writeLot(id){
+  clearTimeout(timers[id]);delete timers[id];
+  const lot=lots[id];if(!lot)return;
+  if(mode!=="db"){saveLocal();delete dirty[id];return}
+  const body=JSON.parse(JSON.stringify(lot));delete body.id;const stamp=dirty[id];
+  chains[id]=(chains[id]||Promise.resolve()).then(()=>db.collection("lots").doc(id).set(body)).then(()=>{if(dirty[id]===stamp)delete dirty[id]}).catch(e=>{
+    toast(e&&e.code==="quota_exceeded"?"保存容量の上限に達しました。古いロットを削除してください。":"保存できませんでした。通信を確認してください。")});
+}
+/* opt.quiet＝画面を描き直さない（入力中）、opt.wait＝少し待ってまとめて保存 */
+function persist(lot,opt){
+  opt=opt||{};lots[lot.id]=lot;dirty[lot.id]=(dirty[lot.id]||0)+1;
+  if(!opt.quiet)render();
+  if(opt.wait){clearTimeout(timers[lot.id]);timers[lot.id]=setTimeout(()=>writeLot(lot.id),700)}else writeLot(lot.id);
+}
+function flushAll(){Object.keys(timers).forEach(writeLot)}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")flushAll()});
+window.addEventListener("pagehide",flushAll);
+function removeLot(id){
+  clearTimeout(timers[id]);delete timers[id];delete dirty[id];
+  delete lots[id];if(sel===id)sel=sortedIds()[0]||null;render();
+  if(mode==="db")(chains[id]||Promise.resolve()).then(()=>db.collection("lots").doc(id).delete()).catch(()=>toast("削除できませんでした。"));
+  else saveLocal();
+}
+async function initStore(){
+  loadLocal();setSaveState();render();
+  try{
+    if(window.claude&&typeof window.claude.use==="function"){
+      const d=await window.claude.use("db");
+      if(d){db=d;mode="db";setSaveState();
+        let first=true;
+        db.collection("lots").onSnapshot(snap=>{
+          const m={};snap.docs.forEach(doc=>{if(doc.exists)m[doc.id]={...doc.data(),id:doc.id}});
+          Object.keys(dirty).forEach(id=>{if(lots[id])m[id]=lots[id]});
+          let same=false;try{same=!first&&JSON.stringify(m)===JSON.stringify(lots)}catch(e){}
+          lots=m;if(first){first=false;if(!sel||!lots[sel])sel=sortedIds()[0]||null}
+          if(!same)render();
+        },()=>{mode="local";setSaveState();loadLocal();render();toast("共有記録に接続できないため、この端末に保存します。")});
+        return;
+      }
+    }
+  }catch(e){}
+  mode="local";setSaveState();if(!sel)sel=sortedIds()[0]||null;render();
+}
+function sortedIds(){return Object.keys(lots).sort((a,b)=>(lots[a].created||0)-(lots[b].created||0))}
+
+/* ---------- lot logic ---------- */
+function newLot(o){
+  const id="l"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  const l={id,created:Date.now(),name:o.name,zone:o.zone,days:+o.days||1,reagent:o.reagent||"alpha",koh:+o.koh||10,
+    flowers:+o.flowers||5,cultivar:o.cultivar||"",hap:o.hap||"",memo:o.memo||"",cur:1,steps:{},res:{}};
+  if(o.spf)l.spf=+o.spf;
+  ["soft","clr","mount"].forEach(k=>{if(o[k])l[k]=o[k]});
+  if(o.rinse!=null)l.rinse=+o.rinse?1:0;
+  return l;
+}
+function stepState(l,n){const st=(l.steps||{})[stepOf(n).k]||{};return {s:st.s||null,e:st.e||null,skip:!!st.skip}}
+function activeTimer(l){const n=curOf(l);if(n>LAST)return null;const st=stepState(l,n);const m=stepOf(n).min(l);if(st.s&&m>0)return {n,until:st.s+m*60000,s:st.s,m};return null}
+function lotStatus(l){
+  const c=curOf(l);
+  if(c>LAST)return {t:"完了",c:""};
+  const a=activeTimer(l);
+  if(a){const left=a.until-Date.now();return left>0?{t:stepOf(a.n).s+" 残り",c:dur(left),until:a.until}:{t:stepOf(a.n).s+" 時間到達",c:"完了待ち"}}
+  return {t:"工程"+stepOf(c).lab+" "+stepOf(c).s,c:"待機"};
+}
+function startStep(id,n){const l=cloneLot(id);const k=stepOf(n).k;l.steps[k]={...(l.steps[k]||{}),s:Date.now()};persist(l)}
+function completeStep(id,n,skip){
+  const l=cloneLot(id);const now=Date.now();const s=stepOf(n);const prev=l.steps[s.k]||{};
+  l.steps[s.k]=skip?{e:now,skip:true}:{s:prev.s||now,e:now};
+  l.cur=Math.max(curOf(l),nextOf(n));viewStep[id]=Math.min(l.cur,LAST);persist(l);
+  toast(`工程${s.lab}を${skip?"省略として":""}記録しました（${fmt(now)}）`);
+}
+/* 工程 n を「未完了」に戻す：開始ボタンで計り始めた開始時刻だけ残す（keepStart=false なら消す） */
+function reopen(l,n,keepStart){
+  const s=stepOf(n),st=l.steps[s.k];if(!st)return;
+  if(keepStart&&st.s&&!st.skip&&st.s!==st.e&&s.min(l)>0)l.steps[s.k]={s:st.s};else delete l.steps[s.k];
+}
+const clearAfter=(l,n)=>STEPS.forEach(x=>{if(x.n>n)delete l.steps[x.k]});
+const strayAfter=(l,n)=>STEPS.filter(x=>x.n>n&&(l.steps||{})[x.k]).length;
+function undoStep(id){
+  const l=cloneLot(id);const n=prevOf(curOf(l));if(!n)return;
+  reopen(l,n,true);clearAfter(l,n);
+  l.cur=n;viewStep[id]=n;persist(l);toast(`工程${stepOf(n).lab}の完了を取り消しました`);
+}
+function moveTo(id,n,clr,clrCur){
+  const l=cloneLot(id);
+  if(n<=LAST){reopen(l,n,!clrCur);if(clr)clearAfter(l,n)}
+  l.cur=n;viewStep[id]=Math.min(n,LAST);persist(l);
+  toast(n>LAST?"全工程を完了の状態にしました":`現在の工程を${stepOf(n).lab}にしました`);
+}
+
+/* ---------- render: run view ---------- */
+function render(){renderRun();if(!$("#v-rec").hidden)renderRec()}
+function renderRun(){
+  const v=$("#v-run");const ids=sortedIds();
+  let keep=null;const ae=document.activeElement;
+  if(ae&&ae.id&&v.contains(ae)){keep={id:ae.id};try{keep.s=ae.selectionStart;keep.e=ae.selectionEnd}catch(e){}}
+  if(sel&&!lots[sel])sel=ids[0]||null;
+  if(!ids.length){v.innerHTML=emptyHTML();bindRun();return}
+  const strip=ids.map(id=>{const l=lots[id];const st=lotStatus(l);const c=curOf(l);
+    const dots=STEPS.map(s=>`<span class="${c>s.n?"d":c===s.n?"c":""}"></span>`).join("");
+    return `<button class="lot" data-lot="${id}" aria-current="${id===sel}"><span class="nm">${esc(l.name)}</span>
+      <span>${zonePill(l)}</span><span class="dots">${dots}</span>
+      <span class="st"><span>${esc(st.t)}</span><span class="mono" ${st.until?`data-until="${st.until}"`:""}>${esc(st.c)}</span></span></button>`}).join("");
+  v.innerHTML=`<div class="lots" role="list">${strip}<button class="lot new" data-act="new">＋ ロット追加</button><button class="lot new" data-act="pilot">＋ 予備試験セット</button></div>${sel?stepHTML(lots[sel]):""}`;
+  bindRun();
+  if(keep){const el=document.getElementById(keep.id);if(el&&v.contains(el)){try{el.focus({preventScroll:true});if(keep.s!=null&&el.setSelectionRange)el.setSelectionRange(keep.s,keep.e)}catch(e){}}}
+}
+/* 区の記号＋方法の名前。方法は軟化液・透明化・すすぎ・封入液の組合せから決める */
+function zonePill(l){
+  const z={A:"A",N:"N",B:"B",C:"C",M:"本試験"}[l.zone]??esc(l.zone||"");
+  const m=methOf(l),k=presetKey(m);
+  const c=m.clr==="alpha"?"alpha":m.clr==="cs"?"cs":k==="conv"?"A":"N";
+  const nm=m.clr==="none"?(k?PRESETS[k].name:"透明化なし・組合せ"):`${rName(l)} ${l.days||1}日${k?"":"・組合せ"}`;
+  return `<span class="pill ${c}">${z} ${nm}</span>`;
+}
+function emptyHTML(){
+  return `<div class="empty"><h3>まだロットがありません</h3>
+  <p>ロットは同じ条件で一緒に処理する試料のまとまりです。方法（従来法・透明化なし・ClearSee・ClearSeeAlpha、または自由な組合せ）はロットごとに選べ、途中でも「方法を変更」で変えられます。ロットの中に処理区と花を持てます（例：12処理区×3花）。工程を1つずつ進めると各工程の時刻が自動で記録され、工程8では花柱ごとに観察結果を入力します。「記録」タブからExcelと解析用CSVを書き出せます。</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn pri" data-act="new">ロットを1つ作成</button><button class="btn" data-act="pilot">予備試験セットを作成</button></div></div>`;
+}
+function stepHTML(l){
+  const id=l.id;const c=curOf(l);
+  let n=viewStep[id];if(idx(n)<0)n=Math.min(c,LAST);viewStep[id]=n;
+  const s=stepOf(n),st=stepState(l,n),m=s.min(l);
+  const rail=STEPS.map(x=>`<button data-go="${x.n}" class="${c>x.n?"done":c===x.n?"cur":""} ${x.n===n?"view":""}" aria-label="工程${x.lab} ${esc(nameOf(x,l))}"><b>${x.lab}</b><small>${x.s}</small></button>`).join("");
+  const cond=s.cond(l).map(t=>`<span>${t}</span>`).join("")+(flag(s.chg,l)?`<span class="chg">従来法から変更</span>`:"");
+  let timeBlock="",acts="";
+  const isCur=c===n,isDone=c>n;
+  if(isDone){
+    if(st.skip)timeBlock=`<div class="stamp">省略　<span class="mono">${fmt(st.e)}</span></div>`;
+    else if(st.e)timeBlock=`<div class="stamp">${st.s?`開始 <span class="mono">${fmt(st.s)}</span>　`:""}完了 <span class="mono">${fmt(st.e)}</span>${st.s&&st.e?`　所要 <span class="mono">${dur(st.e-st.s)}</span>`:""}</div>`;
+    else if(st.s)timeBlock=`<div class="stamp">開始 <span class="mono">${fmt(st.s)}</span>　完了時刻の記録なし</div>`;
+    else timeBlock=`<div class="note info"><b>記録なし</b>　${s.k==="5p"?"工程5'を追加する前（Ver. 2.0）に進めたか、工程を移動したロットのため、記録はありません。":"この工程の時刻は記録されていません。"}</div>`;
+  }else if(isCur&&m>0){
+    const mid=s.mid?s.mid(l):0;
+    if(st.s){const until=st.s+m*60000;
+      timeBlock=`<div class="timer" data-timer="${until}" data-start="${st.s}"><div><div class="big mono" data-until="${until}">${dur(until-Date.now())}</div><div class="meta">開始 ${fmt(st.s)}　｜　予定 ${fmt(until)}${n===1?"（最短）":""}${mid?`　｜　${mid}分で液を交換`:""}</div></div><div class="bar"><i></i></div></div>`;
+    }else timeBlock=`<div class="timer"><div><div class="big mono">${dur(m*60000)}</div><div class="meta">「開始」を押すとタイマーが動き、開始時刻を記録します${mid?`（${mid}分で一度知らせます）`:""}</div></div></div>`;
+  }else if(!isCur&&!isDone){timeBlock=`<div class="note info"><b>未到達</b>　現在は工程${stepOf(c>LAST?LAST:c).lab}です。内容の確認だけできます。${n===LAST?"観察の入力は、工程7を完了するか「工程を移動」で工程8に進めると使えます。":""}</div>`}
+  const stray=c<=LAST?strayAfter(l,c):0;
+  if(stray)timeBlock+=`<div class="note"><b>要整理</b>　現在の工程（${stepOf(c).lab}）より後の${stray}工程に時刻の記録が残っています。「工程を移動」で、実際に進んだ工程に合わせるか、後の記録を消してください。</div>`;
+  if(n===LAST&&(isCur||isDone))timeBlock+=obsPanel(l);
+  // actions
+  const canSkip=s.skip&&flag(s.skip,l);
+  if(isCur){
+    if(n===LAST)acts+=`<button class="btn pri" data-act="finish">観察を完了として記録</button>`;
+    else if(canSkip&&m===0){acts+=`<button class="btn pri" data-act="skip">行わない → 次へ</button><button class="btn" data-act="meth">方法を変更</button>`}
+    else{
+      if(m>0&&!st.s)acts+=`<button class="btn glow" data-act="start">開始</button>`;
+      acts+=`<button class="btn ${m>0&&!st.s?"":"pri"}" data-act="done">完了して次へ</button>`;
+      if(canSkip&&!st.s)acts+=`<button class="btn" data-act="skip">省略して次へ</button>`;
+    }
+  }
+  const pv=prevOf(n),nx=n>=LAST?null:nextOf(n);
+  const nav=`<span class="sp"></span>${c>1?`<button class="btn ghost" data-act="undo">直前の完了を取り消す</button>`:""}<button class="btn ghost" data-act="move">工程を移動</button>
+    <button class="btn" ${pv?`data-go="${pv}"`:"disabled"}>← 前</button><button class="btn" ${nx?`data-go="${nx}"`:"disabled"}>次 →</button>`;
+  const head=`<div class="lothead"><div class="t"><b>${esc(l.name)}</b>${zonePill(l)}
+    <div class="stamp">${esc(l.cultivar||"品種未入力")}　｜　${esc(structLabel(l))}　｜　受粉後 ${esc(l.hap||"—")}${l.memo?"　｜　"+esc(l.memo):""}</div>
+    <div class="stamp">方法：${esc(methSummary(l))}</div></div>
+    <button class="btn pri" data-act="meth">方法を変更</button><button class="btn" data-act="struct">処理区・花</button><button class="btn" data-act="edit">ロット設定</button></div>`;
+  return `${head}<div class="rail">${rail}</div>
+  <article class="card"><div class="card-h"><div class="num">${s.lab}</div><div class="t"><h3>${esc(nameOf(s,l))}</h3><div class="cond">${cond}</div></div></div>
+  <div class="card-b">${s.body(l)}${timeBlock}</div>
+  <div class="actions">${acts}${nav}</div></article>`;
+}
+
+/* ---------- 工程8：花柱ごとの記録 ---------- */
+const opt=(v,t,cur)=>`<option value="${esc(v)}" ${String(cur??"")===String(v)?"selected":""}>${esc(t)}</option>`;
+function obsPanel(l){
+  const S=structOf(l);const C=countRec(l);const r=l.res||{};
+  const p=obsSel[l.id]||(obsSel[l.id]={t:0,f:1});
+  if(!(p.t>=0&&p.t<S.trts.length))p.t=0;if(!(p.f>=1&&p.f<=S.fpt))p.f=1;
+  const T=S.trts[p.t];
+  const nf=(tid,f)=>{let n=0;for(let s=1;s<=S.spf;s++)if(isRec(obsOf(l,ukey(tid,f,s))))n++;return n};
+  const nt=tid=>{let n=0;for(let f=1;f<=S.fpt;f++)n+=nf(tid,f);return n};
+  const tp=S.implicit?"":`<div><div class="pick-l">処理区</div><div class="pick">${S.trts.map((t,i)=>{const n=nt(t.id),a=S.fpt*S.spf;
+      return `<button data-ot="${i}" aria-pressed="${i===p.t}" class="${n>=a?"full":""}"><span>${i+1}. ${esc(t.name)}</span><small>${n}/${a}</small></button>`}).join("")}</div></div>`;
+  let fl="";for(let f=1;f<=S.fpt;f++){const n=nf(T.id,f);fl+=`<button data-ofl="${f}" aria-pressed="${f===p.f}" class="${n>=S.spf?"full":""}"><span>花${f}</span><small>${n}/${S.spf}</small></button>`}
+  let rows="";for(let s=1;s<=S.spf;s++)rows+=styleRow(l,S,T,p.f,s);
+  const legacy=!blank(r.count)||!blank(r.base)?`<div class="note info"><b>旧形式の記録</b>　花柱中央部の花粉管 ${esc(r.count??"—")} 本、基部まで追跡できた割合 ${esc(r.base??"—")} ％（ロット単位。そのまま保存されています）</div>`:"";
+  const sel3=(id,k,labs)=>`<select id="${id}" data-res="${k}">${opt("","—",r[k])}${labs.map((t,i)=>opt(i+1,`${i+1} ${t}`,r[k])).join("")}</select>`;
+  return `<div class="obs">
+   <div class="obs-h"><b>花柱ごとの記録</b><span class="stamp">${S.implicit?"":`${S.trts.length}処理区 × `}${S.fpt}花 × ${S.spf}花柱＝${S.total}本　｜　記録済み <span class="mono">${C.rec}</span>本${C.lost?`（うち欠測 ${C.lost}）`:""}</span><span class="sp"></span><button class="btn" data-act="struct">処理区・花の設定</button></div>
+   ${C.orphan?`<div class="note"><b>構成の外</b>　今の処理区・花の設定に入らない記録が${C.orphan}本あります（消えてはいません。設定を戻すと表示されます）。</div>`:""}
+   ${tp}
+   <div><div class="pick-l">花${S.implicit?"":`（${p.t+1}. ${esc(T.name)}）`}</div><div class="pick">${fl}</div></div>
+   ${rows}
+   <div class="note info"><b>入力の決まり</b>　入力はその場で自動保存。最先端を選ぶと、それより先の線は0本として扱い、入力欄を出しません。雌しべの長さより先の線は「なし」（解析用CSVでは空欄＝NA）。数えられなかった線は空欄のままにします。</div>
+   <div class="form">
+    <div class="fld"><label for="r-obsr">観察者</label><input id="r-obsr" data-res="obsr" value="${esc(r.obsr||"")}"></div>
+    <div class="fld"><label for="r-bg">背景の明るさ（ロット全体）</label>${sel3("r-bg","bg",["暗い（良好）","中","明るい（不良）"])}</div>
+    <div class="fld"><label for="r-brown">褐変（ロット全体）</label>${sel3("r-brown","brown",["ほぼなし","中","強い"])}</div>
+    <div class="fld wide"><label for="r-note">ロット全体の備考（崩れ、押し方、画像ファイル名など）</label><textarea id="r-note" data-res="note">${esc(r.note||"")}</textarea></div>
+   </div>${legacy}</div>`;
+}
+function styleRow(l,S,T,f,s){
+  const k=ukey(T.id,f,s),o=obsOf(l,k),id=`o-${k}`;
+  const top=lineTop(o,S.maxmm);
+  const tipTop=blank(o.l)?S.maxmm:+o.l;
+  const lenOpts=linesTo(S.maxmm).map(m=>opt(m,cls(m),o.l)).join("");
+  let tipOpts=opt("none","花柱に入っていない",o.t);for(let m=0;m<=tipTop;m+=2)tipOpts+=opt(m,m===0?"0–2 mm（2 mmの線に届かない）":cls(m),o.t);
+  tipOpts+=opt("base","基部到達（打ち切り）",o.t)+opt("unk","先端を特定できない",o.t);
+  const warn=[];
+  if(!blank(o.e)&&+o.e===0&&!blank(o.t)&&o.t!=="none"&&o.t!=="unk")warn.push("入った本数が0です");
+  if(!blank(o.e)&&o.c&&Object.keys(o.c).some(m=>+o.c[m]>+o.e))warn.push("線を越えた本数が、入った本数より多い線があります");
+  const done=isRec(o)&&(o.x||!blank(o.t));
+  const head=`<div class="sty-h"><b>花柱 ${s}</b>${done?`<span class="pill okp">${o.x?"欠測":"記録済み"}</span>`:""}
+    <label><input type="checkbox" id="${id}-x" data-u="${k}" data-fld="x" ${o.x?"checked":""}> 欠測（破損・紛失）</label>${warn.map(w=>`<span class="wr">${w}</span>`).join("")}</div>`;
+  if(o.x)return `<div class="sty lost">${head}<div class="fld"><label for="${id}-n">備考</label><input id="${id}-n" data-u="${k}" data-fld="n" value="${esc(o.n||"")}"></div></div>`;
+  const ls=linesTo(top);
+  const lines=ls.length?`<div class="lines">${ls.map(m=>`<label>${m}<input id="${id}-c${m}" type="number" inputmode="numeric" min="0" data-u="${k}" data-line="${m}" value="${esc(o.c&&!blank(o.c[m])?o.c[m]:"")}" aria-label="${m} mmの線を越えた本数"></label>`).join("")}</div>`
+    :`<div class="stamp">${o.t==="none"?"花柱に入っていないため、入力はありません。":"2 mmの線を越えた花粉管はありません（0本として扱います）。"}</div>`;
+  return `<div class="sty">${head}<div class="sty-g">
+    <div class="fld"><label for="${id}-l">雌しべの長さ</label><select id="${id}-l" data-u="${k}" data-fld="l">${opt("","—",o.l)}${lenOpts}</select></div>
+    <div class="fld"><label for="${id}-t">最先端の位置</label><select id="${id}-t" data-u="${k}" data-fld="t">${opt("","—",o.t)}${tipOpts}</select></div>
+    <div class="fld"><label for="${id}-e">花柱に入った本数</label><input id="${id}-e" type="number" inputmode="numeric" min="0" data-u="${k}" data-fld="e" value="${esc(blank(o.e)?"":o.e)}"></div>
+    <div class="fld wide"><span class="lab">各線を越えた本数（線の位置 mm）</span>${lines}</div>
+    <div class="fld wide"><label for="${id}-n">備考</label><input id="${id}-n" data-u="${k}" data-fld="n" value="${esc(o.n||"")}"></div>
+   </div></div>`;
+}
+function setObs(id,key,fn,o2){
+  const l=cloneLot(id);if(!l.obs||typeof l.obs!=="object"||Array.isArray(l.obs))l.obs={};
+  const o=JSON.parse(JSON.stringify(l.obs[key]||{}));fn(o);
+  if(!o.x){delete o.x;
+    if(isNumT(o.t)&&!blank(o.l)&&+o.t>+o.l){delete o.t;toast("最先端が雌しべの長さを超えるため、最先端を未入力に戻しました")}
+    const top=lineTop(o,structOf(l).maxmm);
+    if(o.c){Object.keys(o.c).forEach(m=>{if(+m>top||blank(o.c[m]))delete o.c[m]});if(!Object.keys(o.c).length)delete o.c}
+    if(o.t==="none"&&blank(o.e))o.e=0;
+  }
+  ["l","t","e","n"].forEach(k=>{if(blank(o[k]))delete o[k]});
+  if(isRec(o)){o.at=Date.now();l.obs[key]=o}else delete l.obs[key];
+  persist(l,o2);
+}
+function setRes(id,k,v,o2){const l=cloneLot(id);if(blank(v))delete l.res[k];else l.res[k]=v;persist(l,o2)}
+function onObsInput(e){
+  const t=e.target;if(!sel||!lots[sel])return;const q={quiet:true,wait:true};
+  if(t.dataset.res&&t.tagName!=="SELECT")return setRes(sel,t.dataset.res,t.value,q);
+  const u=t.dataset.u;if(!u)return;
+  if(t.dataset.line)return setObs(sel,u,o=>{o.c=o.c||{};o.c[t.dataset.line]=num(t.value)},q);
+  if(t.dataset.fld==="e")return setObs(sel,u,o=>{o.e=num(t.value)},q);
+  if(t.dataset.fld==="n")return setObs(sel,u,o=>{o.n=t.value},q);
+}
+function onObsChange(e){
+  const t=e.target;if(!sel||!lots[sel])return;
+  if(t.dataset.res&&t.tagName==="SELECT")return setRes(sel,t.dataset.res,t.value);
+  const u=t.dataset.u,f=t.dataset.fld;if(!u)return;
+  if(f==="x")return setObs(sel,u,o=>{o.x=t.checked?1:0});
+  if(f==="l")return setObs(sel,u,o=>{o.l=t.value===""?"":+t.value});
+  if(f==="t")return setObs(sel,u,o=>{o.t=t.value});
+}
+function bindRun(){
+  const v=$("#v-run");
+  v.querySelectorAll("[data-lot]").forEach(b=>b.onclick=()=>{sel=b.dataset.lot;renderRun()});
+  v.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>{const n=parseFloat(b.dataset.go);if(idx(n)>=0){viewStep[sel]=n;renderRun()}});
+  v.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>openReagent(b.dataset.r));
+  v.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>act(b.dataset.act,b));
+  const ob=v.querySelector(".obs");
+  if(ob){
+    ob.querySelectorAll("[data-ot]").forEach(b=>b.onclick=()=>{obsSel[sel]={t:+b.dataset.ot,f:1};renderRun()});
+    ob.querySelectorAll("[data-ofl]").forEach(b=>b.onclick=()=>{(obsSel[sel]=obsSel[sel]||{t:0,f:1}).f=+b.dataset.ofl;renderRun()});
+    ob.addEventListener("input",onObsInput);ob.addEventListener("change",onObsChange);
+  }
+  tick();
+}
+function act(a){
+  if(a==="new")return openLotForm();
+  if(a==="pilot")return openPilotForm();
+  if(a==="edit")return openLotForm(sel);
+  const l=lots[sel];if(!l)return;const n=viewStep[sel];
+  if(a==="meth")return openMethod(sel);
+  if(a==="struct")return openStruct(sel);
+  if(a==="undo")return openUndo(sel);
+  if(a==="move")return openMove(sel);
+  if(a==="start")startStep(sel,n);
+  if(a==="done")completeStep(sel,n,false);
+  if(a==="skip")completeStep(sel,n,true);
+  if(a==="finish"){const c=cloneLot(sel);
+    if(curOf(c)<=LAST){const now=Date.now();c.steps["8"]={s:(c.steps["8"]&&c.steps["8"].s)||now,e:now};c.cur=LAST+1;persist(c)}
+    toast("観察の完了を記録しました");}
+}
+
+/* ---------- 方法の選択（ロット設定と「方法を変更」で共通） ---------- */
+function methodFields(l){
+  const m=methOf(l);const so=(v,t,cur)=>`<option value="${v}" ${String(cur)===String(v)?"selected":""}>${t}</option>`;
+  return `<div class="mbox">
+   <div class="fld wide"><span class="lab">方法をまとめて選ぶ（下の4項目は個別にも変えられる）</span>
+    <div class="pick" id="m-pre">${Object.entries(PRESETS).map(([k,p])=>`<button type="button" data-pre="${k}" aria-pressed="false" title="${esc(p.desc)}"><span>${p.name}</span></button>`).join("")}</div>
+    <span class="stamp" id="m-desc"></span></div>
+   <div class="fld"><label for="m-soft">軟化液（工程2）</label><select id="m-soft">${so("kohs","1N KOH＋亜硫酸Na 50 mM",m.soft)}${so("koh","1N KOHのみ（亜硫酸なし）",m.soft)}</select></div>
+   <div class="fld"><label for="m-koh">KOH時間（70℃）</label><select id="m-koh">${[5,10,15].map(d=>so(d,d+"分",+(l.koh||10))).join("")}</select></div>
+   <div class="fld"><label for="m-clr">透明化（工程5）</label><select id="m-clr">${so("alpha","ClearSeeAlpha",m.clr)}${so("cs","ClearSee（亜硫酸なし）",m.clr)}${so("none","なし",m.clr)}</select></div>
+   <div class="fld"><label for="m-days">透明化日数</label><select id="m-days">${[1,2,3,7,14].map(d=>so(d,d+"日",+(l.days||1))).join("")}</select></div>
+   <div class="fld"><label for="m-rinse">K₃PO₄すすぎ（工程5'）</label><select id="m-rinse">${so(1,"する（5分×2回）",m.rinse)}${so(0,"しない",m.rinse)}</select></div>
+   <div class="fld"><label for="m-mount">封入液（工程7）</label><select id="m-mount">${so("gly","グリセリン封入液",m.mount)}${so("ab","染色液（従来法）",m.mount)}</select></div>
+  </div>`;
+}
+function readMethod(m){
+  const clr=m.querySelector("#m-clr").value;
+  return {soft:m.querySelector("#m-soft").value,clr,rinse:clr==="none"?0:+m.querySelector("#m-rinse").value,mount:m.querySelector("#m-mount").value,
+    koh:+m.querySelector("#m-koh").value,days:+m.querySelector("#m-days").value,reagent:clr==="cs"?"cs":"alpha"};
+}
+function applyPreset(m,k){const p=PRESETS[k];if(!p)return;
+  m.querySelector("#m-soft").value=p.soft;m.querySelector("#m-clr").value=p.clr;m.querySelector("#m-rinse").value=String(p.rinse);m.querySelector("#m-mount").value=p.mount;syncMethod(m)}
+function syncMethod(m){
+  const clr=m.querySelector("#m-clr").value,rs=m.querySelector("#m-rinse"),ds=m.querySelector("#m-days");
+  if(clr==="none")rs.value="0";
+  rs.disabled=clr==="none";ds.disabled=clr==="none";
+  const cur={soft:m.querySelector("#m-soft").value,clr,rinse:+rs.value,mount:m.querySelector("#m-mount").value};const k=presetKey(cur);
+  m.querySelectorAll("[data-pre]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.pre===k));
+  m.querySelector("#m-desc").textContent=k?PRESETS[k].desc:"自由な組合せ（どの「まとめ」とも一致しない）";
+}
+function bindMethod(m){
+  m.querySelectorAll("[data-pre]").forEach(b=>b.onclick=()=>applyPreset(m,b.dataset.pre));
+  ["#m-soft","#m-clr","#m-rinse","#m-mount"].forEach(s=>m.querySelector(s).addEventListener("change",()=>syncMethod(m)));
+  syncMethod(m);
+}
+function openMethod(id){
+  const l=lots[id];if(!l)return;const c=curOf(l);
+  openModal(`<div class="sheet-h"><h3>方法を変更<small>${esc(l.name)}｜工程の表示・タイマー・試薬の案内がすぐ切り替わります</small></h3><button class="btn ghost" data-close>閉じる</button></div>
+   <div class="form">${methodFields(l)}</div>
+   <div class="note info"><b>扱い</b>　いつでも変えられます。すでに終えた工程の時刻の記録と、花柱ごとの観察記録は変わりません（現在は工程${c>LAST?"完了":stepOf(c).lab}）。終えた工程の内容を後から変えた場合は、実際に行った条件に合わせてください（記録・CSVには今の設定が出ます）。</div>
+   <div class="note"><b>安全</b>　亜硫酸ナトリウムを含む液（KOH＋亜硫酸Na、ClearSeeAlpha）は酸・酸化剤と混ぜない。廃液の区分は「試薬」タブの表を参照。</div>
+   <div class="mbtns"><button class="btn pri" id="m-ok">この方法にする</button><button class="btn" data-close>やめる</button></div>`,m=>{
+    bindMethod(m);
+    m.querySelector("#m-ok").onclick=()=>{const o=readMethod(m);const cl=cloneLot(id);Object.assign(cl,o);persist(cl);closeModal();toast(`方法を「${methName(cl)}」にしました`)}});
+}
+
+/* ---------- 取り消しの確認／工程の移動 ---------- */
+function openUndo(id){
+  const l=lots[id];if(!l)return;const n=prevOf(curOf(l));if(!n)return;
+  const s=stepOf(n),st=stepState(l,n);const keeps=st.s&&!st.skip&&st.s!==st.e&&s.min(l)>0;
+  const stray=strayAfter(l,n);
+  openModal(`<div class="sheet-h"><h3>工程${s.lab}の完了を取り消しますか<small>${esc(l.name)}</small></h3><button class="btn ghost" data-close>閉じる</button></div>
+   <p>工程${s.lab}「${esc(nameOf(s,l))}」の${st.skip?"省略の記録":"完了時刻"}（${st.e?fmt(st.e):"記録なし"}）を消し、現在の工程を${s.lab}に戻します。${keeps?`開始時刻（${fmt(st.s)}）は残り、タイマーは続きから動きます。`:""}${stray?`工程${s.lab}より後に残っている時刻の記録（${stray}工程）も消します。`:""}</p>
+   <div class="note info"><b>メモ</b>　戻すのは1工程だけです。2工程以上戻す、先へ進める、記録を整理する場合は「工程を移動」を使います。花柱ごとの観察記録は変わりません。</div>
+   <div class="mbtns"><button class="btn pri" id="u-ok">取り消す</button><button class="btn" data-close>やめる</button></div>`,m=>{
+    m.querySelector("#u-ok").onclick=()=>{closeModal();undoStep(id)}});
+}
+function openMove(id){
+  const l=lots[id];if(!l)return;const c=curOf(l);
+  const row=x=>{const st=stepState(l,x.n);
+    const t=st.skip?`省略 ${fmt(st.e)}`:st.e?`完了 ${fmt(st.e)}`:st.s?`開始 ${fmt(st.s)}`:"記録なし";
+    return `<label class="mv"><input type="radio" name="mv" value="${x.n}" ${x.n===c?"checked":""}><b>${x.lab}</b><span>${esc(nameOf(x,l))}${x.n===c?"（現在）":""}</span><span class="stamp mono">${t}</span></label>`};
+  openModal(`<div class="sheet-h"><h3>工程を移動<small>${esc(l.name)}｜現在の工程を選び直します（戻す・進める）</small></h3><button class="btn ghost" data-close>閉じる</button></div>
+   <div>${STEPS.map(row).join("")}<label class="mv"><input type="radio" name="mv" value="${LAST+1}" ${c>LAST?"checked":""}><b>済</b><span>全工程を完了${c>LAST?"（現在）":""}</span></label></div>
+   <label class="ck"><input type="checkbox" id="mv-clr" checked><span>移動先より後の工程に残っている時刻の記録を消す</span></label>
+   <label class="ck"><input type="checkbox" id="mv-cur"><span>移動先の工程の開始時刻も消す（タイマーをやり直す）</span></label>
+   <div class="note info"><b>扱い</b>　移動先より前の工程は「完了」として表示します（完了時刻がない工程は、開始時刻だけ、または「記録なし」）。移動先の工程は未完了に戻ります。花柱ごとの観察記録は変わりません。</div>
+   <div class="mbtns"><button class="btn pri" id="mv-ok">移動する</button><button class="btn" data-close>やめる</button></div>`,m=>{
+    m.querySelector("#mv-ok").onclick=()=>{const r=m.querySelector("input[name=mv]:checked");if(!r)return;
+      const n=parseFloat(r.value),clr=m.querySelector("#mv-clr").checked,cc=m.querySelector("#mv-cur").checked;closeModal();moveTo(id,n,clr,cc)}});
+}
+
+/* ---------- 処理区・花の設定 ---------- */
+function openStruct(id){
+  const l=lots[id];if(!l)return;const S=structOf(l);
+  let rows=S.implicit?[]:S.trts.map(t=>({...t}));
+  let seq=Math.max(+l.tseq||0,0,...rows.map(r=>+r.id||0));
+  const mk=()=>({id:String(++seq),name:"",fa:"",fb:""});
+  let armed=false;
+  openModal(`<div class="sheet-h"><h3>処理区・花の設定<small>${esc(l.name)}｜工程8で記録する単位（処理区 → 花 → 花柱）</small></h3><button class="btn ghost" data-close>閉じる</button></div>
+   <div class="form">
+    <div class="fld"><label for="s-n">処理区の数</label><div style="display:flex;gap:6px"><input id="s-n" type="number" min="0" inputmode="numeric" value="${rows.length}"><button class="btn" type="button" id="s-fit" style="white-space:nowrap">そろえる</button></div></div>
+    <div class="fld"><label for="s-fpt">花数（1処理区あたり）</label><input id="s-fpt" type="number" min="1" inputmode="numeric" value="${S.fpt}"></div>
+    <div class="fld"><label for="s-spf">花柱数（1花あたり）</label><input id="s-spf" type="number" min="1" max="10" inputmode="numeric" value="${S.spf}"></div>
+    <div class="fld"><label for="s-max">2 mm線の上限（mm）</label><select id="s-max">${[10,12,14,16,18,20,24,30,40].map(x=>opt(x,x+" mm",S.maxmm)).join("")}</select></div>
+   </div>
+   <div class="trow th"><span>No.</span><span>処理区名</span><span>要因A（任意）</span><span>要因B（任意）</span><span></span></div>
+   <div id="s-rows"></div>
+   <button class="btn" type="button" id="s-add">＋ 処理区を追加</button>
+   <div class="note info" style="margin-top:10px"><b>メモ</b>　処理区の数を0にすると、処理区を分けずにロット全体を「花1〜」で記録します。要因A・Bは、2要因の試験（例：エチレン処理の有無×AOAの有無）で水準を入れておくと、解析用CSVの列（factor_a、factor_b）になります。同じ花の花柱を別のロット（区）に1本ずつ割り振る試験では、花柱数を1にします。</div>
+   <div class="note" id="s-warn" hidden></div>
+   <div class="mbtns"><button class="btn pri" id="s-ok">保存</button><button class="btn" data-close>やめる</button></div>`,m=>{
+    const box=m.querySelector("#s-rows"),nIn=m.querySelector("#s-n");
+    const read=()=>box.querySelectorAll(".trow").forEach((el,i)=>{if(!rows[i])return;["name","fa","fb"].forEach(k=>{rows[i][k]=el.querySelector(`[data-k=${k}]`).value.trim()})});
+    const draw=()=>{nIn.value=rows.length;armed=false;m.querySelector("#s-warn").hidden=true;
+      box.innerHTML=rows.length?rows.map((r,i)=>`<div class="trow"><span class="mono">${i+1}</span><input data-k="name" value="${esc(r.name)}" placeholder="処理${i+1}" aria-label="処理区${i+1}の名前"><input data-k="fa" value="${esc(r.fa)}" aria-label="要因A"><input data-k="fb" value="${esc(r.fb)}" aria-label="要因B"><button class="btn ghost" type="button" data-del="${i}" aria-label="処理区${i+1}を削除">×</button></div>`).join("")
+        :`<p class="stamp">処理区を分けない設定です。</p>`;
+      box.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{read();rows.splice(+b.dataset.del,1);draw()})};
+    m.querySelector("#s-add").onclick=()=>{read();rows.push(mk());draw()};
+    m.querySelector("#s-fit").onclick=()=>{read();const n=Math.min(60,Math.max(0,Math.floor(+nIn.value)||0));while(rows.length<n)rows.push(mk());while(rows.length>n)rows.pop();draw()};
+    m.querySelector("#s-ok").onclick=()=>{read();
+      const fpt=Math.max(1,Math.floor(+m.querySelector("#s-fpt").value)||1),spf=Math.min(10,Math.max(1,Math.floor(+m.querySelector("#s-spf").value)||SPF_DEF)),maxmm=+m.querySelector("#s-max").value||MAXMM_DEF;
+      const c=cloneLot(id);
+      if(rows.length){c.trts=rows.map((r,i)=>({id:r.id,name:r.name||`処理${i+1}`,fa:r.fa,fb:r.fb}));c.fpt=fpt;c.tseq=seq;c.flowers=rows.length*fpt}
+      else{delete c.trts;delete c.fpt;c.flowers=fpt}
+      c.spf=spf;c.maxmm=maxmm;
+      const before=countRec(l),after=countRec(c);
+      if(after.orphan>before.orphan&&!armed){armed=true;const w=m.querySelector("#s-warn");w.hidden=false;
+        w.innerHTML=`<b>確認</b>　この設定にすると、入力済みの花柱記録のうち${after.orphan}本が構成の外になり、画面とCSVに出なくなります（記録は消えません。設定を戻すと再び表示されます）。よければ、もう一度「保存」を押してください。`;return}
+      persist(c);closeModal();toast("処理区・花の設定を保存しました")};
+    draw();});
+}
+
+/* ---------- pilot set (04 の1節：ClearSeeAlphaの要否) ---------- */
+function openPilotForm(){
+  const d=new Date();const tag=`予備${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+  openModal(`<div class="sheet-h"><h3>予備試験セットを作成<small>ClearSeeAlphaは必要か（04 の1節）</small></h3><button class="btn ghost" data-close>閉じる</button></div>
+  <table class="ing" style="font-size:13px"><tbody>
+   <tr><td><b>N 透明化なし</b>　KOH＋亜硫酸Na → 染色 → グリセリン封入</td></tr>
+   <tr><td><b>B ClearSeeAlpha 1日</b>　KOH＋亜硫酸Na → ClearSeeAlpha 1日 → すすぎ → 染色 → グリセリン封入</td></tr>
+   <tr><td><b>C ClearSeeAlpha 3日</b>　同上、ClearSeeAlpha 3日</td></tr>
+   <tr><td><b>A 従来法（参考）</b>　KOHのみ → 染色 → 染色液で封入</td></tr></tbody></table>
+  <div class="note info"><b>割り振り</b>　N・B・Cは、同じ花の花柱（1花に約5本）を各区に1本ずつ割り振る（5〜10花）。このため N・B・C のロットは「1花あたり花柱1本」で作り、花の番号を3区で共通にする（解析では花の番号で対にする）。従来法はKOHの条件が違うため別の花を使う。1回のKOH処理に各区の試料を混ぜる。作成後も、各ロットの方法は「方法を変更」で変えられる。</div>
+  <form id="pf" class="form">
+   <div class="fld"><label for="p-tag">セット名（ロット名の先頭）</label><input id="p-tag" value="${tag}"></div>
+   <div class="fld"><label for="p-cv">品種</label><input id="p-cv" value="にっこり"></div>
+   <div class="fld"><label for="p-fl">花数（N・B・C共通）</label><input id="p-fl" type="number" min="1" inputmode="numeric" value="5"></div>
+   <div class="fld"><label for="p-hap">受粉後時間</label><input id="p-hap" placeholder="例：48h"></div>
+   <div class="fld"><label for="p-koh">KOH時間（70℃）</label><select id="p-koh">${[5,10,15].map(x=>`<option value="${x}" ${x===10?"selected":""}>${x}分</option>`).join("")}</select></div>
+   <div class="fld"><label for="p-afl">従来法区の花数</label><input id="p-afl" type="number" min="1" inputmode="numeric" value="3"></div>
+   <div class="fld wide chk"><input id="p-a" type="checkbox" checked><label for="p-a">従来法区（A）も作る</label></div>
+   <div class="fld wide" style="flex-direction:row"><button class="btn pri" type="submit">作成</button></div></form>`,m=>{
+    m.querySelector("#pf").onsubmit=e=>{e.preventDefault();
+      const t=m.querySelector("#p-tag").value.trim()||tag;
+      const base={cultivar:m.querySelector("#p-cv").value.trim(),hap:m.querySelector("#p-hap").value.trim(),koh:+m.querySelector("#p-koh").value,
+        flowers:+m.querySelector("#p-fl").value||5,reagent:"alpha",spf:1};
+      const P=k=>{const p=PRESETS[k];return {soft:p.soft,clr:p.clr,rinse:p.rinse,mount:p.mount}};
+      const memo=`予備試験 ${today()}／同じ花の花柱を各区に1本ずつ`;
+      const set=[[`${t} N 透明化なし`,"N",1,"noclr"],[`${t} B Alpha 1日`,"B",1,"alpha"],[`${t} C Alpha 3日`,"C",3,"alpha"]].map(z=>({...base,...P(z[3]),name:z[0],zone:z[1],days:z[2],memo}));
+      if(m.querySelector("#p-a").checked)set.push({...base,...P("conv"),spf:0,name:`${t} A 従来法`,zone:"A",days:1,flowers:+m.querySelector("#p-afl").value||3,memo:`予備試験 ${today()}／別の花（KOHに亜硫酸なし）`});
+      let first=null;set.forEach((o,i)=>{const l=newLot(o);l.created+=i;if(!first)first=l.id;persist(l)});
+      sel=first;closeModal();showView("run");toast(`予備試験の${set.length}ロットを作成しました`);};
+  });
+}
+
+/* ---------- timers ---------- */
+function tick(){
+  const now=Date.now();
+  document.querySelectorAll("[data-until]").forEach(el=>{const u=+el.dataset.until;const left=u-now;
+    if(el.classList.contains("big"))el.textContent=left>0?dur(left):"経過 "+dur(left);
+    else el.textContent=left>0?dur(left):"完了待ち";});
+  document.querySelectorAll("[data-timer]").forEach(t=>{const u=+t.dataset.timer,s=+t.dataset.start;const p=Math.min(1,(now-s)/(u-s));
+    t.classList.toggle("over",now>=u);const i=t.querySelector(".bar i");if(i)i.style.width=(p*100).toFixed(1)+"%";});
+  Object.values(lots).forEach(l=>{const a=activeTimer(l);if(!a)return;const s=stepOf(a.n);
+    const mid=s.mid?s.mid(l):0;
+    if(mid>0){const mt=a.s+mid*60000,k=l.id+":"+s.k+":mid:"+a.s;if(now>=mt&&!beeped.has(k)){beeped.add(k);if(now-mt<5000){beep();toast(`${l.name}：工程${s.lab}の1回目が終わりました。液を交換してください`)}}}
+    if(now>=a.until){const k=l.id+":"+s.k+":"+a.s;if(!beeped.has(k)){beeped.add(k);if(now-a.until<5000){beep();toast(`${l.name}：工程${s.lab}の時間になりました`)}}}});
+}
+setInterval(tick,1000);
+let actx=null;
+document.addEventListener("pointerdown",()=>{try{if(!actx){const C=window.AudioContext||window.webkitAudioContext;if(C)actx=new C()}}catch(e){}},{once:true});
+function beep(){try{if(!actx)return;[0,.28,.56].forEach(t=>{const o=actx.createOscillator(),gn=actx.createGain();o.frequency.value=880;gn.gain.value=.08;o.connect(gn).connect(actx.destination);o.start(actx.currentTime+t);o.stop(actx.currentTime+t+.16)})}catch(e){}}
+
+/* ---------- modal ---------- */
+function openModal(html,onBind){const m=$("#modal");m.innerHTML=`<div class="sheet" role="dialog" aria-modal="true">${html}</div>`;m.hidden=false;
+  m.onclick=e=>{if(e.target===m)closeModal()};m.querySelectorAll("[data-close]").forEach(b=>b.onclick=closeModal);onBind&&onBind(m);
+  const f=m.querySelector("input,select,button");f&&f.focus()}
+function closeModal(){$("#modal").hidden=true;$("#modal").innerHTML=""}
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#modal").hidden)closeModal()});
+
+const vols={};const ratio={mount:.5};
+function openReagent(k){
+  const r=R[k];if(!r)return;let v=vols[k]||r.def;
+  const draw=m=>{
+    const rr=ratio[k]??.5;
+    m.querySelector("#ing").innerHTML=r.items(v,rr).map(x=>`<tr><td>${x[0]}</td><td>${x[1]}</td></tr>`).join("");
+    m.querySelector("#rsteps").innerHTML=r.steps(v).map(s=>`<li>${s}</li>`).join("");
+    const w=r.warn?r.warn(v):"";const wb=m.querySelector("#rwarn");wb.hidden=!w;wb.innerHTML=w?`<b>はかり</b>　${w}`:"";
+  };
+  openModal(`<div class="sheet-h"><h3>${r.name}<small>${r.use}</small></h3><button class="btn ghost" data-close aria-label="閉じる">閉じる</button></div>
+    <div class="fld"><label for="vol">${r.volLabel||"作る量（最終量）"}</label></div>
+    <div class="vol"><input id="vol" type="number" inputmode="decimal" min="1" value="${v}"><span>mL</span>${r.pre.map(p=>`<button class="pre" data-p="${p}">${p}</button>`).join("")}</div>
+    ${r.ratio?`<div class="vol"><span class="stamp">グリセリン</span><span class="seg">${[[.5,"50％"],[.7,"70％"]].map(o=>`<button data-ratio="${o[0]}" aria-pressed="${(ratio[k]??.5)===o[0]}">${o[1]}</button>`).join("")}</span></div>`:""}
+    <table class="ing"><tbody id="ing"></tbody></table>
+    <div class="note" id="rwarn" hidden></div>
+    <ol id="rsteps"></ol>${r.notes.map(n=>`<div class="note info">${n}</div>`).join("")}${r.waste?wasteNote(r.waste):""}`,m=>{
+      const inp=m.querySelector("#vol");
+      inp.oninput=()=>{const x=parseFloat(inp.value);if(x>0){v=x;vols[k]=x;draw(m)}};
+      m.querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{v=+b.dataset.p;vols[k]=v;inp.value=v;draw(m)});
+      m.querySelectorAll("[data-ratio]").forEach(b=>b.onclick=()=>{ratio[k]=+b.dataset.ratio;m.querySelectorAll("[data-ratio]").forEach(x=>x.setAttribute("aria-pressed",x===b));draw(m)});
+      draw(m);});
+}
+function openLotForm(id){
+  const l=id?lots[id]:{name:"",zone:"M",days:1,reagent:"alpha",koh:10,flowers:5,cultivar:"",hap:"",memo:"",soft:"kohs",clr:"alpha",rinse:1,mount:"gly"};
+  const fixed=!!id&&hasTrts(l);
+  openModal(`<div class="sheet-h"><h3>${id?"ロット設定":"新しいロット"}<small>同じ条件で一緒に処理する試料のまとまり</small></h3><button class="btn ghost" data-close>閉じる</button></div>
+  <form id="lf" class="form">
+   <div class="fld wide"><label for="f-name">ロット名</label><input id="f-name" required value="${esc(l.name)}" placeholder="例：本試験 にっこり 1"></div>
+   ${methodFields(l)}
+   <div class="fld"><label for="f-zone">区の記号（ラベル）</label><select id="f-zone">${[["M","本試験"],["A","A"],["N","N"],["B","B"],["C","C"]].map(o=>`<option value="${o[0]}" ${l.zone===o[0]?"selected":""}>${o[1]}</option>`).join("")}</select></div>
+   <div class="fld"><label for="f-fl">花数${fixed?"（処理区×花で決まる）":""}</label><input id="f-fl" type="number" min="1" inputmode="numeric" value="${esc(l.flowers)}" ${fixed?"disabled":""}></div>
+   <div class="fld"><label for="f-cv">品種</label><input id="f-cv" value="${esc(l.cultivar)}" placeholder="例：にっこり"></div>
+   <div class="fld"><label for="f-hap">受粉後時間</label><input id="f-hap" value="${esc(l.hap)}" placeholder="例：48h"></div>
+   <div class="fld wide"><label for="f-memo">メモ（押し方など）</label><input id="f-memo" value="${esc(l.memo)}"></div>
+   <div class="fld wide"><span class="stamp">方法は作成後も「方法を変更」でいつでも変えられます。区の記号は表示と記録用のラベルで、工程の内容は方法で決まります。ロットの中の処理区と花は、作成後に「処理区・花」で設定します。</span></div>
+   <div class="fld wide" style="flex-direction:row;gap:8px;flex-wrap:wrap"><button class="btn pri" type="submit">${id?"保存":"作成"}</button>
+   ${id?`<span class="sp"></span><button class="btn danger" type="button" id="del">このロットを削除</button>`:""}</div></form>`,m=>{
+    bindMethod(m);
+    m.querySelector("#lf").onsubmit=e=>{e.preventDefault();
+      const o={name:m.querySelector("#f-name").value.trim()||"ロット",zone:m.querySelector("#f-zone").value,...readMethod(m),
+        flowers:+m.querySelector("#f-fl").value||1,cultivar:m.querySelector("#f-cv").value.trim(),hap:m.querySelector("#f-hap").value.trim(),memo:m.querySelector("#f-memo").value.trim()};
+      if(fixed)delete o.flowers;
+      if(id){const c=cloneLot(id);Object.assign(c,o);persist(c);toast("保存しました")}else{const n=newLot(o);sel=n.id;persist(n);toast("ロットを作成しました")}
+      closeModal();showView("run");};
+    const del=m.querySelector("#del");
+    if(del){let armed=false;del.onclick=()=>{if(!armed){armed=true;del.textContent="もう一度押すと削除";setTimeout(()=>{armed=false;del.textContent="このロットを削除"},3000);return}
+      removeLot(id);closeModal();toast("削除しました")}}
+  });
+}
+
+/* ---------- reagent view ---------- */
+function renderReag(){
+  $("#v-reag").innerHTML=`<h2>試薬の作り方</h2><p class="lede">試薬をタップすると作り方が開きます。作りたい最終量を入れると、必要量を自動で計算します。工程の画面で青い枠の試薬名をタップしても開けます。亜硫酸ナトリウムは無水物の量です（液量 mL × 0.0063 g）。</p>
+  <div class="rgrid">${Object.entries(R).map(([k,r])=>`<button class="rcard" data-r="${k}"><b>${r.name}</b><small>${r.use}</small></button>`).join("")}</div>
+  <div class="est"><h2 style="margin:0">必要量の見積り</h2>
+   <div class="vol"><label for="est-n">使う穴の数</label><input id="est-n" type="number" min="0" inputmode="numeric" value="135"><span>穴（通常は1花＝1穴）</span></div>
+   <div class="vol"><label for="est-c">うち透明化する穴</label><input id="est-c" type="number" min="0" inputmode="numeric" value="135"><span>穴（透明化しないロットを除く）</span></div>
+   <div class="est-out" id="est-out"></div>
+   <p class="lede" style="margin:0">透明化液・染色液は1穴1 mL、すすぎのK₃PO₄は1穴2 mL（1 mL×2回。すすぐロットの分だけ）、封入液は1枚0.1 mL、いずれも予備10％込み。亜硫酸ナトリウムはClearSeeAlphaにする場合の量。KOH軟化液は袋の体積の5〜10倍（12袋で200〜300 mL）で、亜硫酸ナトリウムを加える場合は100 mLあたり0.63 g。</p></div>
+  <div class="sec"><h2>廃液区分</h2><div class="tbl-wrap"><table><thead><tr><th>廃液</th><th>区分</th><th>備考</th></tr></thead><tbody>${WASTE.map(w=>`<tr><td>${w[0]}</td><td>${w[1]}</td><td>${w[2]}</td></tr>`).join("")}</tbody></table></div>
+   <p class="lede" style="margin-top:8px">所内の区分（有機、無機・酸性、無機・アルカリ性）による。所内の規定が優先。</p></div>
+  <div class="sec"><h2>安全</h2><div class="tbl-wrap"><table><tbody>${SAFETY.map(w=>`<tr><td>${w[0]}</td><td>${w[1]}</td></tr>`).join("")}</tbody></table></div></div>`;
+  const out=()=>{const n=Math.max(0,+$("#est-n").value||0),cl=Math.min(n,Math.max(0,+$("#est-c").value||0));const c=x=>ml(x*1.1);
+    $("#est-out").innerHTML=`<div><small>ClearSee原液（透明化用）</small><b>${c(cl)}</b> mL</div><div><small>亜硫酸Na 無水物（Alpha用）</small><b>${g2(cl*1.1*SULF)}</b> g</div><div><small>0.1M K₃PO₄（すすぎ）</small><b>${c(cl*2)}</b> mL</div><div><small>染色液</small><b>${c(n)}</b> mL</div><div><small>グリセリン封入液</small><b>${c(n*.1)}</b> mL</div><div><small>24穴セルトレイ</small><b>${Math.ceil(n/24)}</b> 枚</div>`};
+  $("#est-n").oninput=out;$("#est-c").oninput=out;out();
+  $("#v-reag").querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>openReagent(b.dataset.r));
+}
+
+/* ---------- records ---------- */
+const COLS=[["ロット","name"],["区","zone"],["方法","meth"],["品種","cultivar"],["花数","flowers"],["処理区・花・花柱","struct"],["花柱記録","nobs"],["受粉後時間","hap"],
+  ["軟化液","soft"],["KOH(分)","koh"],["透明化液","reag"],["透明化日数","days"],["すすぎ","rinse"],["封入液","mount"],
+  ...STEPS.map(s=>[`${s.lab} ${s.s} 完了`,"e"+s.k]),["観察者","obsr"],["背景(1-3)","bg"],["褐変(1-3)","brown"],["備考","note"],["花粉管本数（旧）","count"],["基部到達％（旧）","base"],["メモ","memo"]];
+const NUMCOLS=["flowers","days","koh","count","base","bg","brown"];
+function rowOf(l){const r=l.res||{};const S=structOf(l),C=countRec(l);
+  const o={name:l.name,zone:l.zone==="M"?"本試験":l.zone,meth:methName(l),cultivar:l.cultivar,flowers:l.flowers,
+  struct:(S.implicit?"":`${S.trts.length}区×`)+`${S.fpt}花×${S.spf}本`,nobs:`${C.rec}/${C.total}`,hap:l.hap,
+  soft:softKoh(l)?"KOHのみ":"KOH＋亜硫酸Na",koh:l.koh||10,
+  reag:noClear(l)?"なし":rName(l),days:noClear(l)?"":(l.days||1),rinse:noClear(l)?"":(rinseOf(l)?"あり":"なし"),mount:mountAb(l)?"染色液":"グリセリン封入液",
+  obsr:r.obsr,bg:r.bg,brown:r.brown,note:r.note,count:r.count,base:r.base,memo:l.memo};
+  STEPS.forEach(s=>{const st=(l.steps||{})[s.k];o["e"+s.k]=st&&st.e?(st.skip?"省略 ":"")+fmt(st.e):""});return o}
+
+/* 花柱1本＝1行の表（解析用）。空欄＝NA */
+const TIPCLS=t=>blank(t)?"":t==="none"?"none":t==="base"?"base":t==="unk"?"unknown":`${pad(+t)}-${pad(+t+2)}`;
+function styleTable(ids,inclBlank){
+  let maxLine=4;ids.forEach(id=>{maxLine=Math.max(maxLine,structOf(lots[id]).maxmm)});
+  const L=linesTo(maxLine);
+  const head=["lot","lot_id","cultivar","hap","zone","clearing","clear_days","koh_min","softening","rinse","mount","observer","trt_no","trt","factor_a","factor_b","flower","flower_id","style","style_id","status",
+    "pistil_len_mm","tip_class","tip_mm","base_reached","tip_unknown","n_entered",...L.map(m=>`n_${pad(m)}mm`),"note","recorded_at"];
+  const rows=[];
+  ids.forEach(id=>{const l=lots[id];const S=structOf(l);const r=l.res||{};
+    S.trts.forEach((T,ti)=>{for(let f=1;f<=S.fpt;f++)for(let s=1;s<=S.spf;s++){
+      const o=obsOf(l,ukey(T.id,f,s));const rec=isRec(o);if(!rec&&!inclBlank)continue;
+      const ok=rec&&!o.x;const fid=`${l.id}-T${pad(ti+1)}-F${pad(f)}`;
+      const top=ok?lineTop(o,S.maxmm):0;
+      const line=m=>{if(!ok)return"";if(!blank(o.l)&&m>+o.l)return"";
+        if(o.t==="none"||(isNumT(o.t)&&m>+o.t))return 0;
+        return o.c&&!blank(o.c[m])&&m<=top?+o.c[m]:""};
+      rows.push([l.name,l.id,l.cultivar||"",l.hap||"",l.zone||"",noClear(l)?"none":rName(l),noClear(l)?"":(l.days||1),l.koh||10,
+        softKoh(l)?"KOH":"KOH_sulfite",rinseOf(l)?1:0,mountAb(l)?"stain":"glycerol",r.obsr||"",
+        ti+1,T.name,T.fa,T.fb,f,fid,s,`${fid}-S${s}`,rec?(o.x?"lost":"ok"):"blank",
+        ok&&!blank(o.l)?+o.l:"",ok?TIPCLS(o.t):"",ok&&isNumT(o.t)?+o.t:"",ok&&!blank(o.t)?(o.t==="base"?1:0):"",ok&&!blank(o.t)?(o.t==="unk"?1:0):"",
+        ok&&!blank(o.e)?+o.e:"",...L.map(line),o.n||"",o.at?fmt(o.at):""]);
+    }})});
+  return {head,rows};
+}
+const csvCell=x=>{const s=String(x??"");return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s};
+const toCsv=t=>"﻿"+[t.head,...t.rows].map(r=>r.map(csvCell).join(",")).join("\r\n")+"\r\n";
+const fileSafe=s=>String(s??"").replace(/[\s'’‘"“”\\/:*?<>|,._]+/g,"").trim();
+
+function renderRec(){
+  const ids=sortedIds();const v=$("#v-rec");
+  if(!ids.length){v.innerHTML=`<div class="empty"><h3>記録はまだありません</h3><p>「工程」タブでロットを作成し、工程を完了すると、ここに時刻と観察結果が自動で並びます。</p></div>`;return}
+  const rows=ids.map(id=>rowOf(lots[id]));
+  const nSty=ids.reduce((a,id)=>a+countRec(lots[id]).rec,0);
+  v.innerHTML=`<div class="rec-bar"><h2 style="margin:0;margin-right:auto">記録（${ids.length}ロット）</h2>
+    <button class="btn pri" id="xl">Excelで書き出す</button><button class="btn" id="cp">表をコピー</button></div>
+    <div class="tbl-wrap"><table><thead><tr>${COLS.map(c=>`<th>${c[0]}</th>`).join("")}</tr></thead><tbody>
+    ${rows.map(r=>`<tr>${COLS.map(c=>`<td class="${c[1].startsWith("e")?"mono":""}">${esc(r[c[1]]??"")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+    <p class="lede" style="margin-top:10px">${mode==="db"?"記録はこのページの共有記録に自動保存され、ページを開いた人の間で共有されます。":"記録はこの端末のブラウザに保存されています（ほかの端末とは共有されません）。定期的にExcelで書き出してください。"}「区」は記号（ラベル）で、実際の方法は「方法」「軟化液」「透明化液」「すすぎ」「封入液」の列に出ます（今の設定）。Excelには、ロットの表と、花柱ごとの表（シート「花柱」）が入ります。</p>
+    <div class="rec-bar" style="margin-top:22px"><h2 style="margin:0;margin-right:auto">花柱ごとの記録（${nSty}本）</h2><button class="btn pri" id="csv">解析用CSVを書き出す</button></div>
+    <p class="lede">花柱1本＝1行の縦長の表です。ファイル名は「品種_特性_年.csv」。Rでは <span class="mono">read.csv(…, fileEncoding="UTF-8-BOM")</span> で読めます（空欄はNA）。</p>`;
+  $("#xl").onclick=()=>exportXlsx(rows);
+  $("#csv").onclick=()=>openCsv();
+  $("#cp").onclick=()=>{const tsv=[COLS.map(c=>c[0]).join("\t"),...rows.map(r=>COLS.map(c=>String(r[c[1]]??"").replace(/\s+/g," ")).join("\t"))].join("\n");
+    const ok=()=>toast("表をコピーしました。Excelに貼り付けできます。");
+    try{navigator.clipboard.writeText(tsv).then(ok,()=>showTsv(tsv))}catch(e){showTsv(tsv)}};
+}
+function showTsv(tsv,ttl){openModal(`<div class="sheet-h"><h3>${ttl||"表のテキスト"}<small>全選択してコピーし、Excelやテキストエディタに貼り付けてください</small></h3><button class="btn ghost" data-close>閉じる</button></div><div class="fld"><textarea id="tsv" style="min-height:240px;font-family:var(--f-mono);font-size:12px">${esc(tsv)}</textarea></div>`,m=>{const t=m.querySelector("#tsv");t.focus();t.select()})}
+/* ファイル保存：公開ページでは downloads、それ以外（GitHub Pagesなど）は通常のダウンロード。保存できたら true */
+async function saveFile(name,data,mime){
+  if(window.claude&&typeof window.claude.use==="function"){
+    const dl=await window.claude.use("downloads");
+    if(!dl){toast("この画面では書き出せません。");return false}
+    try{await dl.save({filename:name,data});return true}catch(e){if(!e||e.code!=="declined")toast("書き出せませんでした。");return false}
+  }
+  try{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([data],{type:mime}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);return true}
+  catch(e){toast("書き出せませんでした。");return false}
+}
+async function exportXlsx(rows){
+  if(!window.XLSX){toast("Excel書き出しの部品を読み込めませんでした。「表をコピー」を使ってください。");return}
+  const aoa=[COLS.map(c=>c[0]),...rows.map(r=>COLS.map(c=>{const x=r[c[1]];return x!==""&&x!=null&&!isNaN(x)&&NUMCOLS.includes(c[1])?+x:(x??"")}))];
+  const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=COLS.map(c=>({wch:c[1].startsWith("e")?17:c[1]==="note"?30:12}));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"花粉管観察");
+  const t=styleTable(sortedIds(),false);
+  const ws2=XLSX.utils.aoa_to_sheet([t.head,...t.rows]);ws2["!cols"]=t.head.map(h=>({wch:/_id$|^lot$|recorded_at|note/.test(h)?22:11}));
+  XLSX.utils.book_append_sheet(wb,ws2,"花柱");
+  const buf=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+  await saveFile(`花粉管観察記録_${today()}.xlsx`,buf,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+}
+function openCsv(){
+  const ids=sortedIds();const withRec=ids.filter(id=>countRec(lots[id]).rec>0);
+  const pre=withRec.length?withRec:(sel&&lots[sel]?[sel]:ids.slice(0,1));
+  const cv0=fileSafe((lots[pre[0]]||{}).cultivar)||"品種";
+  openModal(`<div class="sheet-h"><h3>解析用CSVを書き出す<small>花柱1本＝1行（縦長）</small></h3><button class="btn ghost" data-close>閉じる</button></div>
+   <div class="pick-l">書き出すロット</div>
+   <div>${ids.map(id=>{const l=lots[id],C=countRec(l);return `<label class="mv"><input type="checkbox" data-lotck="${id}" ${pre.includes(id)?"checked":""}><span>${esc(l.name)}</span><span class="stamp mono">${C.rec}/${C.total}本</span></label>`}).join("")}</div>
+   <div class="form" style="margin-top:12px">
+    <div class="fld"><label for="c-cv">品種</label><input id="c-cv" value="${esc(cv0)}"></div>
+    <div class="fld"><label for="c-tr">特性</label><input id="c-tr" value="花粉管伸長"></div>
+    <div class="fld"><label for="c-yr">年（採取・試験の年）</label><input id="c-yr" type="number" inputmode="numeric" value="${new Date().getFullYear()}"></div>
+   </div>
+   <label class="ck"><input type="checkbox" id="c-blank"><span>未記録の花柱も行として含める（status＝blank）</span></label>
+   <p class="stamp" style="margin-top:10px">ファイル名：<span class="mono" id="c-name"></span>　｜　<span id="c-n"></span></p>
+   <div class="note info"><b>列の決まり</b>　方法の列：clearing（none／ClearSee／ClearSeeAlpha）、softening（KOH／KOH_sulfite）、rinse（工程5'、0／1）、mount（stain／glycerol）。tip_class＝最先端の区分（none、00-02、02-04、…、base、unknown）。base は基部到達＝打ち切り（base_reached＝1）。pistil_len_mm・tip_mm は区分の下限（14 は 14–16 mm）。n_02mm などは各線を越えた本数で、最先端より先の線は0、雌しべの長さより先の線と数えていない線は空欄（NA）。欠測の花柱は status＝lost で、測定値は空欄。flower_id は花ごとの番号（変量効果用）。</div>
+   <div class="mbtns"><button class="btn pri" id="c-ok">CSVを書き出す</button><button class="btn" id="c-txt">テキストで表示</button><button class="btn" data-close>やめる</button></div>`,m=>{
+    const picked=()=>[...m.querySelectorAll("[data-lotck]")].filter(c=>c.checked).map(c=>c.dataset.lotck);
+    const name=()=>`${fileSafe(m.querySelector("#c-cv").value)||"品種"}_${fileSafe(m.querySelector("#c-tr").value)||"特性"}_${fileSafe(m.querySelector("#c-yr").value)||new Date().getFullYear()}.csv`;
+    const table=()=>styleTable(picked(),m.querySelector("#c-blank").checked);
+    const upd=()=>{m.querySelector("#c-name").textContent=name();m.querySelector("#c-n").textContent=`${table().rows.length}行`};
+    m.querySelectorAll("input").forEach(i=>i.addEventListener("input",upd));upd();
+    m.querySelector("#c-ok").onclick=async()=>{const t=table();if(!t.rows.length){toast("書き出す行がありません。ロットを選ぶか、工程8で記録を入力してください。");return}
+      const ok=await saveFile(name(),toCsv(t),"text/csv;charset=utf-8");if(ok){closeModal();toast(`${name()} を書き出しました（${t.rows.length}行）`)}};
+    m.querySelector("#c-txt").onclick=()=>{const t=table();showTsv(toCsv(t).slice(1),name())};
+  });
+}
+
+/* ---------- views ---------- */
+function showView(v){["run","reag","rec"].forEach(x=>{$("#v-"+x).hidden=x!==v;$("#tab-"+x).setAttribute("aria-selected",x===v)});
+  if(v==="reag")renderReag();if(v==="rec")renderRec();if(v==="run")renderRun();window.scrollTo(0,0)}
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>showView(b.dataset.v));
+initStore();
+})();
+</script>
+</body></html>

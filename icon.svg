@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<defs>
+ <radialGradient id="bg" cx="36%" cy="26%" r="90%">
+  <stop offset="0" stop-color="#5A2E82"/><stop offset="1" stop-color="#26123D"/>
+ </radialGradient>
+ <linearGradient id="sty" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#C9B3EA" stop-opacity=".34"/><stop offset="1" stop-color="#C9B3EA" stop-opacity=".16"/>
+ </linearGradient>
+ <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+  <feGaussianBlur stdDeviation="14" result="b"/>
+  <feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+ </filter>
+</defs>
+<rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+<g transform="translate(512 512) scale(1.06) translate(-512 -512)">
+ <!-- 2 mm 区分の目盛り -->
+ <g stroke="#D9C9F2" stroke-opacity=".55" stroke-width="14" stroke-linecap="round">
+  <line x1="214" y1="400" x2="262" y2="400"/><line x1="214" y1="520" x2="262" y2="520"/>
+  <line x1="214" y1="640" x2="262" y2="640"/><line x1="214" y1="760" x2="262" y2="760"/>
+ </g>
+ <!-- 柱頭と花柱 -->
+ <path d="M330 250 C330 180 420 150 512 150 C604 150 694 180 694 250 C694 312 628 330 590 342
+          L556 860 C554 884 470 884 468 860 L434 342 C396 330 330 312 330 250 Z"
+       fill="url(#sty)" stroke="#E4D7F7" stroke-opacity=".85" stroke-width="16" stroke-linejoin="round"/>
+ <!-- 花粉管（蛍光） -->
+ <g fill="none" stroke-linecap="round" filter="url(#glow)">
+  <path d="M440 236 C470 330 488 420 494 540 C499 650 502 740 504 832" stroke="#7FF0FF" stroke-width="20"/>
+  <path d="M584 232 C556 330 536 420 530 520 C526 590 524 640 522 690" stroke="#7FF0FF" stroke-width="18"/>
+  <path d="M512 214 C514 300 512 360 510 440" stroke="#BFF8FF" stroke-width="16"/>
+ </g>
+ <!-- 柱頭上の花粉粒 -->
+ <g fill="#F4FDFF">
+  <circle cx="440" cy="228" r="30"/><circle cx="584" cy="224" r="28"/><circle cx="512" cy="204" r="26"/>
+  <circle cx="380" cy="252" r="18" fill-opacity=".8"/><circle cx="646" cy="256" r="18" fill-opacity=".8"/>
+ </g>
+</g>
+</svg>

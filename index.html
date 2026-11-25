@@ -1030,11 +1030,11 @@ const fileSafe=s=>String(s??"").replace(/[\s'’‘"“”\\/:*?<>|,._]+/g,"").t
 
 function renderRec(){
   const ids=sortedIds();const v=$("#v-rec");
-  if(!ids.length){v.innerHTML=`<div class="empty"><h3>記録はまだありません</h3><p>「工程」タブでロットを作成し、工程を完了すると、ここに時刻と観察結果が自動で並びます。</p></div>`;return}
+  if(!ids.length){v.innerHTML=`<div class="empty"><h3>記録はまだありません</h3><p>「工程」タブでロットを作成し、工程を完了すると、ここに時刻と観察結果が自動で並びます。</p><p>別のブラウザや端末で付けた記録は「記録の引っ越し」で読み込めます。</p><p><button class="btn pri" id="bk">記録の引っ越し（バックアップ）</button></p></div>`;$("#bk").onclick=()=>openBackup();return}
   const rows=ids.map(id=>rowOf(lots[id]));
   const nSty=ids.reduce((a,id)=>a+countRec(lots[id]).rec,0);
   v.innerHTML=`<div class="rec-bar"><h2 style="margin:0;margin-right:auto">記録（${ids.length}ロット）</h2>
-    <button class="btn pri" id="xl">Excelで書き出す</button><button class="btn" id="cp">表をコピー</button></div>
+    <button class="btn pri" id="xl">Excelで書き出す</button><button class="btn" id="cp">表をコピー</button><button class="btn" id="bk">記録の引っ越し（バックアップ）</button></div>
     <div class="tbl-wrap"><table><thead><tr>${COLS.map(c=>`<th>${c[0]}</th>`).join("")}</tr></thead><tbody>
     ${rows.map(r=>`<tr>${COLS.map(c=>`<td class="${c[1].startsWith("e")?"mono":""}">${esc(r[c[1]]??"")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
     <p class="lede" style="margin-top:10px">${mode==="db"?"記録はこのページの共有記録に自動保存され、ページを開いた人の間で共有されます。":"記録はこの端末のブラウザに保存されています（ほかの端末とは共有されません）。定期的にExcelで書き出してください。"}「区」は記号（ラベル）で、実際の方法は「方法」「軟化液」「透明化液」「すすぎ」「封入液」の列に出ます（今の設定）。Excelには、ロットの表と、花柱ごとの表（シート「花柱」）が入ります。</p>
@@ -1042,11 +1042,54 @@ function renderRec(){
     <p class="lede">花柱1本＝1行の縦長の表です。ファイル名は「品種_特性_年.csv」。Rでは <span class="mono">read.csv(…, fileEncoding="UTF-8-BOM")</span> で読めます（空欄はNA）。</p>`;
   $("#xl").onclick=()=>exportXlsx(rows);
   $("#csv").onclick=()=>openCsv();
+  $("#bk").onclick=()=>openBackup();
   $("#cp").onclick=()=>{const tsv=[COLS.map(c=>c[0]).join("\t"),...rows.map(r=>COLS.map(c=>String(r[c[1]]??"").replace(/\s+/g," ")).join("\t"))].join("\n");
     const ok=()=>toast("表をコピーしました。Excelに貼り付けできます。");
     try{navigator.clipboard.writeText(tsv).then(ok,()=>showTsv(tsv))}catch(e){showTsv(tsv)}};
 }
 function showTsv(tsv,ttl){openModal(`<div class="sheet-h"><h3>${ttl||"表のテキスト"}<small>全選択してコピーし、Excelやテキストエディタに貼り付けてください</small></h3><button class="btn ghost" data-close>閉じる</button></div><div class="fld"><textarea id="tsv" style="min-height:240px;font-family:var(--f-mono);font-size:12px">${esc(tsv)}</textarea></div>`,m=>{const t=m.querySelector("#tsv");t.focus();t.select()})}
+/* ---------- 記録の引っ越し（バックアップ） ----------
+   全ロットを1つのJSONにまとめて書き出し、別のブラウザ・端末・共有記録へ読み込む。
+   形式：{app:"kafunkan-navi", ver:1, exported:ミリ秒, lots:{id:ロット文書}}。読み込みは追加が基本で、同じidのロットは選んだ方法で扱う。 */
+function backupJson(){const o={};sortedIds().forEach(id=>{const c=JSON.parse(JSON.stringify(lots[id]));delete c.id;o[id]=c});
+  return JSON.stringify({app:"kafunkan-navi",ver:1,exported:Date.now(),lots:o})}
+function parseBackup(txt){
+  let d;try{d=JSON.parse(String(txt||"").replace(/^﻿/,"").trim())}catch(e){return null}
+  const src=d&&typeof d==="object"&&d.lots&&typeof d.lots==="object"?d.lots:d;
+  if(!src||typeof src!=="object"||Array.isArray(src))return null;
+  const out={};Object.keys(src).forEach(id=>{const l=src[id];
+    if(l&&typeof l==="object"&&!Array.isArray(l)&&typeof l.name==="string"&&/^[A-Za-z0-9_-]{1,80}$/.test(id))out[id]=l});
+  return Object.keys(out).length?out:null;
+}
+function applyBackup(src,overwrite){
+  let add=0,upd=0,keep=0;
+  Object.keys(src).forEach(id=>{const l={...JSON.parse(JSON.stringify(src[id])),id};
+    if(lots[id]){const a=JSON.stringify({...lots[id],id}),b=JSON.stringify(l);if(a===b||!overwrite){keep++;return}upd++}else add++;
+    persist(l,{quiet:true})});
+  if(!sel||!lots[sel])sel=sortedIds()[0]||null;render();
+  toast(`読み込みました：追加 ${add}件、上書き ${upd}件、そのまま ${keep}件`);
+}
+function openBackup(){
+  const n=sortedIds().length;
+  openModal(`<div class="sheet-h"><h3>記録の引っ越し<small>ブラウザ・端末・ホーム画面のアプリの間で記録を移す</small></h3><button class="btn ghost" data-close>閉じる</button></div>
+  <div class="note info"><b>保存場所について</b>　${mode==="db"?"このページでは記録を共有記録に保存しています。":"このページでは記録をこのブラウザの中に保存しています。"}iPhoneでは、Safariで開いたページと「ホーム画面に追加」したアプリは保存場所が別です（ホーム画面のアプリを削除すると、その中の記録も消えます）。移すときは、移す元で書き出し、移す先で読み込みます。</div>
+  <h4 style="margin:16px 0 6px">1. 移す元で書き出す（${n}ロット）</h4>
+  <p><button class="btn pri" id="bkSave"${n?"":" disabled"}>ファイルに保存</button> <button class="btn" id="bkCopy"${n?"":" disabled"}>テキストをコピー</button></p>
+  <h4 style="margin:16px 0 6px">2. 移す先で読み込む</h4>
+  <p><label class="btn" style="cursor:pointer">ファイルを選ぶ<input type="file" id="bkFile" accept=".json,application/json,text/plain" hidden></label></p>
+  <div class="fld"><label for="bkTxt">または、コピーしたテキストを貼り付け</label><textarea id="bkTxt" style="min-height:90px;font-family:var(--f-mono);font-size:12px" placeholder='{"app":"kafunkan-navi", …}'></textarea></div>
+  <div style="margin:6px 0"><label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;cursor:pointer"><input type="checkbox" id="bkOver" style="width:auto;margin:3px 0 0;flex:none"> 同じロットがあれば読み込んだ内容で上書きする（初期は、こちらにあるロットを残す）</label></div>
+  <p><button class="btn pri" id="bkLoad">貼り付けたテキストを読み込む</button></p>`,m=>{
+    const q=s=>m.querySelector(s);
+    q("#bkSave").onclick=async()=>{if(await saveFile(`花粉管観察ナビ_バックアップ_${today()}.json`,backupJson(),"application/json"))toast("バックアップを保存しました。")};
+    q("#bkCopy").onclick=()=>{const t=backupJson();try{navigator.clipboard.writeText(t).then(()=>toast("コピーしました。移す先で貼り付けてください。"),()=>showTsv(t,"バックアップのテキスト"))}catch(e){showTsv(t,"バックアップのテキスト")}};
+    const go=txt=>{const src=parseBackup(txt);if(!src){toast("花粉管観察ナビのバックアップとして読めませんでした。");return}
+      const over=q("#bkOver").checked;
+      closeModal();applyBackup(src,over)};
+    q("#bkFile").onchange=e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>go(r.result);r.onerror=()=>toast("ファイルを読めませんでした。");r.readAsText(f)};
+    q("#bkLoad").onclick=()=>go(q("#bkTxt").value);
+  });
+}
 /* ファイル保存：公開ページでは downloads、それ以外（GitHub Pagesなど）は通常のダウンロード。保存できたら true */
 async function saveFile(name,data,mime){
   if(window.claude&&typeof window.claude.use==="function"){
